@@ -1,0 +1,172 @@
+import { useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { SelectCombobox } from "@/components/select-combobox";
+import { DatePickerRange } from "@/components/date-picker-range";
+import {
+  Drawer,
+  DrawerTrigger,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerFooter,
+} from "@/components/ui/drawer";
+import { paymentOptions, defaultSalesFilters } from "./sales-filters";
+import type { SalesFilters } from "./sales-filters";
+
+export function SalesFilterDrawer({
+  filters,
+  stores,
+  cashiers,
+  onSave,
+  hideCashier = false,
+  hideStore = false,
+}: {
+  filters: SalesFilters;
+  stores: { value: string; label: string }[];
+  cashiers: string[];
+  onSave: (filters: SalesFilters) => void;
+  hideCashier?: boolean;
+  hideStore?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(filters);
+  const hasDraftFilters =
+    !!(draft.dateRange?.from || draft.dateRange?.to) ||
+    [draft.paymentMethod, hideStore ? 'all' : draft.store, hideCashier ? 'all' : draft.cashier, draft.product].some(
+      (value) => !!value && value !== "all",
+    );
+  const active =
+    !!filters.dateRange?.from ||
+    [
+      filters.paymentMethod,
+      hideStore ? 'all' : filters.store,
+      hideCashier ? 'all' : filters.cashier,
+      filters.product,
+    ].some((value) => value !== "all");
+  const fields = [
+    {
+      key: "paymentMethod",
+      label: "Metode pembayaran",
+      options: paymentOptions,
+    },
+    {
+      key: "store",
+      label: "Store",
+      options: stores,
+    },
+    {
+      key: "cashier",
+      label: "Kasir",
+      options: cashiers.map((value) => ({ value, label: value })),
+    },
+  ] as const;
+
+  return (
+    <Drawer
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setDraft({ ...filters });
+        setOpen(next);
+      }}
+    >
+      <DrawerTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="relative"
+          aria-label={
+            active ? "Filter penjualan, filter aktif" : "Filter penjualan"
+          }
+        >
+          <SlidersHorizontal aria-hidden="true" />
+          {active && (
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+          )}
+        </Button>
+      </DrawerTrigger>
+      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <DrawerHeader className="shrink-0">
+          <DrawerTitle>Filter penjualan</DrawerTitle>
+          {/* <DrawerDescription>
+            Pilih filter lalu simpan untuk menerapkan.
+          </DrawerDescription> */}
+        </DrawerHeader>
+        <div className="min-h-0 space-y-5 overflow-y-auto p-4">
+          <div className="space-y-2">
+            <label htmlFor="sales-date-range" className="text-sm font-medium">
+              Rentang tanggal
+            </label>
+            <DatePickerRange
+              type="modal"
+              id="sales-date-range"
+              value={draft.dateRange}
+              onChange={(dateRange) =>
+                setDraft((current) => ({ ...current, dateRange }))
+              }
+            />
+          </div>
+          {fields.filter((field) => (!hideCashier || field.key !== 'cashier') && (!hideStore || field.key !== 'store')).map(({ key, label, options }) => (
+            <div key={key} className="space-y-2">
+              {key === 'store' ? (
+                <fieldset className="min-w-0 space-y-3">
+                  <legend className="text-sm font-medium">Store</legend>
+                  <div className="flex flex-wrap gap-2">
+                    {[{ value: 'all', label: 'Semua' }, ...options].map((option) => (
+                      <Button key={option.value} type="button" variant={draft.store === option.value ? 'default' : 'outline'}
+                        aria-pressed={draft.store === option.value} onClick={() => setDraft((current) => ({ ...current, store: option.value }))}>
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : (
+              <>
+              <label
+                htmlFor={`sales-filter-${key}`}
+                className="text-sm font-medium"
+              >
+                {label}
+              </label>
+              <SelectCombobox
+                searchable={false}
+                id={`sales-filter-${key}`}
+                aria-label={label}
+                options={[{ value: "all", label: "Semua" }, ...options]}
+                value={draft[key]}
+                onChange={(value) =>
+                  setDraft((current) => ({ ...current, [key]: value || "all" }))
+                }
+              />
+              </>
+              )}
+            </div>
+          ))}
+        </div>
+        <DrawerFooter className="shrink-0">
+          <div className={hasDraftFilters ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
+            {hasDraftFilters && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDraft({ ...defaultSalesFilters })}
+              >
+                Reset filter
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={() => {
+                onSave({ ...draft });
+                setOpen(false);
+              }}
+            >
+              Simpan
+            </Button>
+          </div>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
+}
