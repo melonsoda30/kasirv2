@@ -1,11 +1,23 @@
 import { useState } from "react";
 import { Package } from "lucide-react";
+import { cn } from "cn";
 import { formatCurrency } from "@/lib/currency";
+import { ProductPrice } from "@/features/products/product-price";
 import type { Product } from "@/features/products/sample-products";
 import type { OrderLine } from "./order-store";
 import { OrderQuantityButtons } from "./order-quantity-buttons";
 
-export function OrderItemRow({ orderId, item, catalogProduct }: { orderId?: string; item: OrderLine; catalogProduct?: Product }) {
+export function OrderItemRow({
+  orderId,
+  item,
+  catalogProduct,
+  showDiscount,
+}: {
+  orderId?: string;
+  item: OrderLine;
+  catalogProduct?: Product;
+  showDiscount?: boolean;
+}) {
   const [failedImage, setFailedImage] = useState(false);
   const image =
     item.product.photo ||
@@ -30,20 +42,49 @@ export function OrderItemRow({ orderId, item, catalogProduct }: { orderId?: stri
           />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div
+        className={cn(
+          "min-w-0 flex-1",
+          showDiscount && "flex flex-col flex-wrap items-start justify-between gap-x-3 gap-y-1",
+        )}
+      >
         <p className="break-words text-sm leading-tight font-medium">
           {item.product.title}
         </p>
-        <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {!orderId && <>{item.quantity} × </>}
-            {formatCurrency(item.unitPrice)}
-          </p>
-          {orderId && <OrderQuantityButtons orderId={orderId} item={item} catalogProduct={catalogProduct} />}
-        </div>
-        <p className="mt-0.5 text-sm leading-tight font-bold text-foreground tabular-nums">
-          {formatCurrency(item.unitPrice * item.quantity)}
-        </p>
+        {showDiscount ? (
+          <div className="min-w-0">
+            <ProductPrice
+              product={item.product}
+              unitPrice={item.unitPrice}
+              inline
+              quantity={item.quantity}
+            />
+            {item.quantity > 1 && (
+              <p className="mt-1 text-sm leading-tight font-bold tabular-nums">
+                {formatCurrency(item.unitPrice * item.quantity)}
+              </p>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {!orderId && <>{item.quantity} × </>}
+                {formatCurrency(item.unitPrice)}
+              </p>
+              {orderId && (
+                <OrderQuantityButtons
+                  orderId={orderId}
+                  item={item}
+                  catalogProduct={catalogProduct}
+                />
+              )}
+            </div>
+            <p className="mt-0.5 text-sm leading-tight font-bold text-foreground tabular-nums">
+              {formatCurrency(item.unitPrice * item.quantity)}
+            </p>
+          </>
+        )}
       </div>
     </li>
   );

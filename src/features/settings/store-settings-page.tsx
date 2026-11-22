@@ -4,6 +4,7 @@ import { isAxiosError } from "axios";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
 import { paymentMethodsKey } from "@/features/orders/payment-methods";
+import { refreshCashSessionData } from "@/features/cash-session/cash-session-query";
 import { settingsUrl, useStoreSettings, type StoreSettings } from "./store-settings-query";
 import { request } from "@/lib/api";
 
@@ -75,6 +76,7 @@ export function StoreSettingsPage({
 
       await queryClient.cancelQueries({ queryKey, exact: true });
       queryClient.setQueryData(queryKey, { ...current, ...patch, ...response.data });
+      if (patch.shift || patch.cash_tolerance !== undefined) refreshCashSessionData(queryClient);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey, exact: true }),
         ...(patch.payment || patch.fee || upload

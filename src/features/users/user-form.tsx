@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { DrawerFooter } from "@/components/ui/drawer";
 import { ImageInput, type UploadStatus } from "@/components/image-input";
@@ -130,7 +131,7 @@ export function UserForm({ user, change, close }: {
 
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-col" autoComplete="off">
-      <div className={user ? "min-h-0 overflow-y-auto px-4 pb-4" : "pb-4"}>
+      <div className={cn("pb-4", user && "min-h-0 overflow-y-auto px-4")}>
         <fieldset disabled={change.isPending} className="min-w-0 space-y-4">
           <legend className="mb-3 text-sm font-semibold text-muted-foreground">Akun &amp; Akses</legend>
           <div className="space-y-2">
@@ -195,7 +196,7 @@ export function UserForm({ user, change, close }: {
           <p role="alert" className="mt-4 text-sm text-destructive">{change.error.message}</p>
         )}
       </div>
-      <Footer className={`grid shrink-0 grid-cols-2 gap-2 border-t ${user ? "" : "pt-4"}`}>
+      <Footer className={cn("grid shrink-0 grid-cols-2 gap-2 border-t", !user && "pt-4")}>
         <Button variant="outline" type="button" disabled={change.isPending} onClick={close}>Batal</Button>
         <Button type="submit" disabled={upload.busy || !!upload.error} loading={change.isPending}>Simpan</Button>
       </Footer>

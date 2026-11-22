@@ -17,6 +17,7 @@ const cashierRoutes = new Set([
   '/',
   '/order',
   '/cart',
+  '/sesi-kas',
   '/penjualan',
   '/stok',
   '/payment/$orderId',

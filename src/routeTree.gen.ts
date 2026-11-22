@@ -16,6 +16,7 @@ import { Route as OrderRouteImport } from './routes/order'
 import { Route as PenjualanRouteImport } from './routes/penjualan'
 import { Route as ProdukRouteImport } from './routes/produk'
 import { Route as ProfilRouteImport } from './routes/profil'
+import { Route as SesiKasRouteImport } from './routes/sesi-kas'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StokRouteImport } from './routes/stok'
 import { Route as StoreRouteImport } from './routes/store'
@@ -64,6 +65,11 @@ const ProdukRoute = ProdukRouteImport.update({
 const ProfilRoute = ProfilRouteImport.update({
   id: '/profil',
   path: '/profil',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SesiKasRoute = SesiKasRouteImport.update({
+  id: '/sesi-kas',
+  path: '/sesi-kas',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -145,6 +151,7 @@ export interface FileRoutesByFullPath {
   '/penjualan': typeof PenjualanRoute
   '/produk': typeof ProdukRoute
   '/profil': typeof ProfilRoute
+  '/sesi-kas': typeof SesiKasRoute
   '/settings': typeof SettingsRoute
   '/stok': typeof StokRoute
   '/store': typeof StoreRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/penjualan': typeof PenjualanRoute
   '/produk': typeof ProdukRoute
   '/profil': typeof ProfilRoute
+  '/sesi-kas': typeof SesiKasRoute
   '/settings': typeof SettingsRoute
   '/stok': typeof StokRoute
   '/store': typeof StoreRoute
@@ -192,6 +200,7 @@ export interface FileRoutesById {
   '/penjualan': typeof PenjualanRoute
   '/produk': typeof ProdukRoute
   '/profil': typeof ProfilRoute
+  '/sesi-kas': typeof SesiKasRoute
   '/settings': typeof SettingsRoute
   '/stok': typeof StokRoute
   '/store': typeof StoreRoute
@@ -217,6 +226,7 @@ export interface FileRouteTypes {
     | '/penjualan'
     | '/produk'
     | '/profil'
+    | '/sesi-kas'
     | '/settings'
     | '/stok'
     | '/store'
@@ -240,6 +250,7 @@ export interface FileRouteTypes {
     | '/penjualan'
     | '/produk'
     | '/profil'
+    | '/sesi-kas'
     | '/settings'
     | '/stok'
     | '/store'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
     | '/penjualan'
     | '/produk'
     | '/profil'
+    | '/sesi-kas'
     | '/settings'
     | '/stok'
     | '/store'
@@ -287,6 +299,7 @@ export interface RootRouteChildren {
   PenjualanRoute: typeof PenjualanRoute
   ProdukRoute: typeof ProdukRoute
   ProfilRoute: typeof ProfilRoute
+  SesiKasRoute: typeof SesiKasRoute
   SettingsRoute: typeof SettingsRoute
   StokRoute: typeof StokRoute
   StoreRoute: typeof StoreRoute
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       path: '/profil'
       fullPath: '/profil'
       preLoaderRoute: typeof ProfilRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sesi-kas': {
+      id: '/sesi-kas'
+      path: '/sesi-kas'
+      fullPath: '/sesi-kas'
+      preLoaderRoute: typeof SesiKasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -463,6 +483,7 @@ const rootRouteChildren: RootRouteChildren = {
   PenjualanRoute: PenjualanRoute,
   ProdukRoute: ProdukRoute,
   ProfilRoute: ProfilRoute,
+  SesiKasRoute: SesiKasRoute,
   SettingsRoute: SettingsRoute,
   StokRoute: StokRoute,
   StoreRoute: StoreRoute,

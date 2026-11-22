@@ -8,11 +8,13 @@ export function PageLayout({
   title,
   children,
   prevLink,
+  prevSearch,
   headerAction,
 }: {
   title?: string;
   children?: ReactNode;
   prevLink?: LinkProps['to'];
+  prevSearch?: LinkProps['search'];
   headerAction?: ReactNode;
 }) {
   return (
@@ -22,7 +24,7 @@ export function PageLayout({
           <div className="flex min-h-12 items-center gap-2">
             {prevLink && (
               <Button asChild variant="ghost" size="icon">
-                <Link to={prevLink} aria-label="Kembali">
+                <Link to={prevLink} search={prevSearch} aria-label="Kembali">
                   <ArrowLeft aria-hidden="true" />
                 </Link>
               </Button>

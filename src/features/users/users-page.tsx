@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Plus, Search, SlidersHorizontal, UserRound } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -102,7 +103,7 @@ function UserFilterDrawer({
         </div>
         <DrawerFooter>
           <div
-            className={`grid gap-2 ${hasFilters(draft) ? "grid-cols-2" : "grid-cols-1"}`}
+            className={cn("grid gap-2", hasFilters(draft) ? "grid-cols-2" : "grid-cols-1")}
           >
             {hasFilters(draft) && (
               <Button
@@ -158,7 +159,10 @@ function UserCard({ user }: { user: UserRecord }) {
             {userDisplayName(user)}
           </h2>
           <span
-            className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${user.user_status === "active" ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground"}`}
+            className={cn(
+              "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium",
+              user.user_status === "active" ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground",
+            )}
           >
             {user.user_status === "active" ? "Aktif" : "Nonaktif"}
           </span>
@@ -215,7 +219,10 @@ export function UsersPage() {
     <>
       <header className="users-toolbar fixed inset-x-0 top-0 z-20 border-b bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <div
-          className={`grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none ${showTitle ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+          className={cn(
+            "grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none",
+            showTitle ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          )}
         >
           <div className="overflow-hidden" inert={!showTitle}>
             <div className="flex h-12 items-center gap-2 px-4">
@@ -253,9 +260,10 @@ export function UsersPage() {
         id="main-content"
         className="min-w-0 flex-1 px-4 pt-[calc(109px+env(safe-area-inset-top)+1rem)] pb-6"
       >
-        {usersQuery.isPending ? (
+        {usersQuery.isPending && (
           <p role="status">Memuat daftar pengguna...</p>
-        ) : usersQuery.isError ? (
+        )}
+        {!usersQuery.isPending && usersQuery.isError && (
           <div className="space-y-3">
             <p role="alert">Gagal memuat daftar pengguna.</p>
             <Button
@@ -267,7 +275,8 @@ export function UsersPage() {
               Coba lagi
             </Button>
           </div>
-        ) : users.length ? (
+        )}
+        {usersQuery.isSuccess && users.length > 0 && (
           <ul className="space-y-3">
             {users.map((user) => (
               <li key={user.user_id}>
@@ -282,7 +291,8 @@ export function UsersPage() {
               </li>
             ))}
           </ul>
-        ) : (
+        )}
+        {!usersQuery.isPending && !usersQuery.isError && !users.length && (
           <div className="space-y-3 py-16 text-center">
             <Search
               className="mx-auto size-7 text-muted-foreground"

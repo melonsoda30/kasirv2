@@ -133,11 +133,9 @@ async function fetchProductList<TRecord>(
   ) {
     throw new Error(response.msg || "Gagal memuat daftar produk.");
   }
-  const data = Array.isArray(response)
-    ? response
-    : response?.status === "success"
-      ? response.data
-      : undefined;
+  let data: TRecord[] | undefined;
+  if (Array.isArray(response)) data = response;
+  else if (response?.status === "success") data = response.data;
   if (!Array.isArray(data))
     throw new Error("Format daftar produk dari server tidak valid.");
   return data.map((record) => mapRecord(record));
@@ -199,12 +197,9 @@ export interface SaveProductInput {
 }
 
 export async function saveProduct(input: SaveProductInput): Promise<string> {
-  const discountType =
-    input.discountType === "Persentase (%)"
-      ? "percent"
-      : input.discountType === "Nominal"
-        ? "fixed"
-        : "none";
+  let discountType = "none";
+  if (input.discountType === "Persentase (%)") discountType = "percent";
+  if (input.discountType === "Nominal") discountType = "fixed";
   const data = new FormData();
   data.set("action", input.menuId ? "edit_product" : "add_product");
   if (input.menuId) data.set("product_sku", input.menuId);

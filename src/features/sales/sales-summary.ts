@@ -10,6 +10,10 @@ export interface Sale {
   cashier: string
   salesperson?: { id: string; name: string }
   paymentMethod: string
+  paymentCode?: string
+  subtotal?: number
+  tax?: number
+  note?: string
   status: SaleStatus
   paymentProof?: { url: string; name?: string; type: 'image' | 'document' }
   /** Final sale amount after discounts, excluding change. */

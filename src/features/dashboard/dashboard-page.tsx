@@ -5,22 +5,25 @@ import { Store } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
 import { isAdminAccount, useAuthStore, type Account } from "@/features/auth/auth-store";
-import { formatCurrency, formatNominal } from "@/lib/currency";
+import { formatCurrency } from "@/lib/currency";
 import { DashboardLineChart } from "./dashboard-line-chart";
 import { BestSales, TrendingProducts } from "./dashboard-sales";
-import { useDashboardQuery, type SessionSummaryData } from "./dashboard-api";
+import { useDashboardQuery } from "./dashboard-api";
 
 function DashboardSection<T>({ title, query, children }: {
   title: string;
   query: UseQueryResult<T>;
   children: (data: T) => ReactNode;
 }) {
+  const { data, isPending } = query;
   return (
     <section aria-label={title} className="space-y-4 rounded-xl border bg-background p-4">
       <h2 className="text-sm font-semibold">{title}</h2>
-      {query.data !== undefined ? children(query.data) : query.isPending ? (
+      {data !== undefined && children(data)}
+      {data === undefined && isPending && (
         <p role="status" className="text-sm text-muted-foreground">Memuat data...</p>
-      ) : (
+      )}
+      {data === undefined && !isPending && (
         <div className="space-y-2">
           <p role="alert" className="text-sm text-destructive">Gagal memuat data.</p>
           <Button type="button" variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>
@@ -32,44 +35,11 @@ function DashboardSection<T>({ title, query, children }: {
   );
 }
 
-const summaryDate = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Jakarta",
-});
-
-function SessionSummary({ summary }: { summary: SessionSummaryData }) {
-  if (!summary.use_session) return null;
-  const date = new Date(`${summary.date}T00:00:00+07:00`);
-  const stats = [
-    ["Jumlah sesi", formatNominal(summary.count)],
-    ["Sesi terbuka", formatNominal(summary.open_count)],
-    ["Total omzet", formatCurrency(summary.total_omzet)],
-    ["Uang tunai masuk", formatCurrency(summary.total_cash_in)],
-    ["Total selisih", formatCurrency(summary.total_difference)],
-    ["Sesi di luar toleransi", formatNominal(summary.exceeded_count)],
-  ];
-
-  return (
-    <>
-      <p className="text-sm text-muted-foreground">{Number.isNaN(date.getTime()) ? summary.date : summaryDate.format(date)}</p>
-      <dl className="grid grid-cols-2 gap-3">
-        {stats.map(([label, value]) => (
-          <div key={label} className="min-w-0 rounded-lg bg-muted/50 px-3 py-2.5">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className={`mt-1 text-sm font-semibold tabular-nums ${label === "Total selisih" && summary.total_difference < 0 ? "text-destructive" : ""}`}>{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="text-xs text-muted-foreground">Toleransi selisih per sesi {formatCurrency(summary.cash_tolerance)}</p>
-    </>
-  );
-}
-
 function AdminDashboard({ account }: { account: Account }) {
   const earnings = useDashboardQuery("total_earning", account);
   const profit = useDashboardQuery("profit_statistic", account);
   const sales = useDashboardQuery("best_sales", account);
   const trending = useDashboardQuery("trending_product", account);
-  const sessions = useDashboardQuery("session_summary", account);
 
   return (
     <div className="space-y-4">
@@ -102,11 +72,6 @@ function AdminDashboard({ account }: { account: Account }) {
       <DashboardSection title="Produk terlaris per hari" query={trending}>
         {(data) => <TrendingProducts trending={data} />}
       </DashboardSection>
-      {sessions.data?.use_session !== false && (
-        <DashboardSection title="Ringkasan tutup buku" query={sessions}>
-          {(data) => <SessionSummary summary={data} />}
-        </DashboardSection>
-      )}
       <DashboardSection title="Kasir dengan penjualan tertinggi" query={sales}>
         {(data) => <BestSales sales={data} />}
       </DashboardSection>

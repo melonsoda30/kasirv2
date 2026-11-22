@@ -128,15 +128,13 @@ export function CategorySettingsDrawer({
       >
         <DrawerHeader className="shrink-0">
           <DrawerTitle>
-            {editor?.type === "save"
-              ? editor.category
-                ? "Edit kategori"
-                : "Tambah kategori"
-              : "Pengaturan kategori"}
+            {editor?.type === "save" && editor.category && "Edit kategori"}
+            {editor?.type === "save" && !editor.category && "Tambah kategori"}
+            {editor?.type !== "save" && "Pengaturan kategori"}
           </DrawerTitle>
         </DrawerHeader>
         <div className="min-h-0 space-y-6 overflow-y-auto px-4 py-4">
-          {editor?.type === "save" ? (
+          {editor?.type === "save" && (
             <form
               id="category-settings-form"
               onSubmit={save}
@@ -167,7 +165,8 @@ export function CategorySettingsDrawer({
                 </p>
               )}
             </form>
-          ) : (
+          )}
+          {editor?.type !== "save" && (
             <>
               {categories.isPending && <p role="status">Memuat kategori...</p>}
               {categories.isError && (

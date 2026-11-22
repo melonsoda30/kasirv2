@@ -51,9 +51,11 @@ function PaymentMethodCard({ method, linkedFee, update }: {
   update: SaveStoreSettings;
 }) {
   const hasQris = Boolean(method.image) || [method.code, method.title, method.type].some((value) => /qris/i.test(value));
-  const feeSummary = linkedFee
-    ? `Biaya ${linkedFee.title} (${formatFee(linkedFee)})${linkedFee.is_active === false ? " · Nonaktif" : ""}`
-    : method.fee_code ? "Biaya tertaut tidak ditemukan" : undefined;
+  let feeSummary = method.fee_code ? "Biaya tertaut tidak ditemukan" : undefined;
+  if (linkedFee) {
+    const status = linkedFee.is_active === false ? ", nonaktif" : "";
+    feeSummary = `Biaya ${linkedFee.title} (${formatFee(linkedFee)})${status}`;
+  }
 
   const [image, setImage] = useState("");
   const [file, setFile] = useState<File | null>(null);

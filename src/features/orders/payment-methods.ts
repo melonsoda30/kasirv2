@@ -54,12 +54,9 @@ export async function fetchPaymentMethods(
 
     const type = record.payment_type.trim().toLowerCase();
     const code = record.payment_code.toLowerCase();
-    const kind =
-      type === "cash" || type === "tunai" || code === "cash" || code === "tunai"
-        ? "cash"
-        : type === "qris" || code === "qris"
-          ? "qris"
-          : "noncash";
+    let kind: PaymentMethod["kind"] = "noncash";
+    if (type === "qris" || code === "qris") kind = "qris";
+    if (type === "cash" || type === "tunai" || code === "cash" || code === "tunai") kind = "cash";
     const image = record.image?.trim();
     return [
       {

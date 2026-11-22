@@ -27,13 +27,7 @@ function ShiftSettingsPage() {
               title={item.title}
               active={item.is_active}
               editOnActivate
-              summary={
-                item.code === "none"
-                  ? undefined
-                  : item.start_time || item.end_time
-                    ? `${item.start_time || "—"} – ${item.end_time || "—"}`
-                    : "Jam shift belum diatur"
-              }
+              summary={shiftSchedule(item)}
               onSave={(active, values) =>
                 update((current) => {
                   const shift = current.shift.map(
@@ -47,11 +41,7 @@ function ShiftSettingsPage() {
                         (item.code === "none") !== (entry.code === "none");
                       return {
                         ...entry,
-                        is_active: selected
-                          ? active
-                          : active && oppositeMode
-                            ? false
-                            : entry.is_active,
+                        is_active: selected ? active : entry.is_active && !(active && oppositeMode),
                         ...(entry.code !== "none" && (start_time || end_time)
                           ? { start_time, end_time }
                           : {}),
@@ -64,13 +54,13 @@ function ShiftSettingsPage() {
                 })
               }
             >
-              {item.code !== "none" ? (
+              {item.code !== "none" && (
                 <div className="space-y-3">
                   {shift.some(
                     (entry) => entry.code === "none" && entry.is_active,
                   ) && (
                     <p className="text-sm text-muted-foreground">
-                      Mengaktifkan shift ini akan menonaktifkan Tanpa Shift.
+                      Jika toko memakai shift, kasir harus membuka shift sebelum menerima transaksi.
                     </p>
                   )}
                   <div className="grid grid-cols-2 gap-3">
@@ -94,12 +84,13 @@ function ShiftSettingsPage() {
                     </label>
                   </div>
                 </div>
-              ) : !item.is_active && shift.some((entry) => entry.is_active) ? (
+              )}
+              {item.code === "none" && !item.is_active && shift.some((entry) => entry.is_active) && (
                 <p className="text-sm text-muted-foreground">
                   Mengaktifkan Tanpa Shift akan menonaktifkan shift kerja yang
                   aktif.
                 </p>
-              ) : undefined}
+              )}
             </SettingCard>
           ))}
           <CashToleranceForm
@@ -111,6 +102,14 @@ function ShiftSettingsPage() {
       )}
     </StoreSettingsPage>
   );
+}
+
+function shiftSchedule({ code, start_time, end_time }: { code: string; start_time?: string; end_time?: string }) {
+  if (code === "none") return undefined;
+  if (!start_time && !end_time) return "Jam shift belum diatur";
+  const overnight = start_time && end_time && end_time < start_time;
+  const suffix = overnight ? " (lewat tengah malam)" : "";
+  return `${start_time || "—"} – ${end_time || "—"}${suffix}`;
 }
 
 function CashToleranceForm({
@@ -152,8 +151,12 @@ function CashToleranceForm({
       className="grid gap-3 rounded-xl border bg-background p-4"
     >
       <label className="grid gap-2 text-sm">
-        Toleransi Selisih (Rp)
-        <InputNominal value={nominal} onValueChange={setNominal} disabled={pending} />
+        Toleransi Selisih
+        <InputNominal
+          value={nominal}
+          onValueChange={setNominal}
+          disabled={pending}
+        />
       </label>
       <Button type="submit" className="justify-self-end" disabled={pending}>
         {pending ? "Menyimpan..." : "Simpan toleransi"}

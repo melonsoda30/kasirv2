@@ -1,6 +1,7 @@
 ﻿import { useState, type FormEvent, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -36,6 +37,8 @@ export function SettingCard({
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const showEditor = (active || editOnActivate || editWhenInactive) && !!children;
+  const saveLabel = active || editWhenInactive ? "Simpan" : "Aktifkan";
 
   async function persist(nextActive: boolean, values?: FormData) {
     if (pending) return;
@@ -65,11 +68,14 @@ export function SettingCard({
 
   return (
     <Drawer open={open} onOpenChange={changeOpen}>
-      <div className={preview ? "overflow-hidden rounded-xl border bg-background" : undefined}>
+      <div className={cn(preview ? "overflow-hidden rounded-xl border bg-background" : undefined)}>
         <DrawerTrigger asChild>
           <button
             type="button"
-            className={`flex w-full cursor-pointer items-center gap-3 bg-background p-4 text-left text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${preview ? "border-b" : "rounded-xl border"}`}
+            className={cn(
+              "flex w-full cursor-pointer items-center gap-3 bg-background p-4 text-left text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              preview ? "border-b" : "rounded-xl border",
+            )}
           >
             <span className="min-w-0 flex-1">
               <span className="block font-semibold">{title}</span>
@@ -77,7 +83,7 @@ export function SettingCard({
             </span>
             <span
               className={
-                active ? "font-medium text-primary" : "text-muted-foreground"
+                cn(active ? "font-medium text-primary" : "text-muted-foreground")
               }
             >
               {active ? "Aktif" : "Nonaktif"}
@@ -97,7 +103,7 @@ export function SettingCard({
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>
         </DrawerHeader>
-        {(active || editOnActivate || editWhenInactive) && children ? (
+        {showEditor && (
           <form onSubmit={save} className="min-h-0 overflow-y-auto">
             <fieldset disabled={pending} className="min-w-0 px-4">{open && children}</fieldset>
             <DrawerFooter className="flex-row">
@@ -111,11 +117,12 @@ export function SettingCard({
                 {active ? "Nonaktifkan" : "Aktifkan"}
               </Button>}
               <Button type="submit" className="flex-1" disabled={pending || saveDisabled}>
-                {pending ? "Menyimpan..." : active || editWhenInactive ? "Simpan" : "Aktifkan"}
+                {pending ? "Menyimpan..." : saveLabel}
               </Button>
             </DrawerFooter>
           </form>
-        ) : (
+        )}
+        {!showEditor && (
           <DrawerFooter>
             <Button type="button" disabled={pending} onClick={() => void persist(!active)}>
               {active ? "Nonaktifkan" : "Aktifkan"}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { SelectCombobox } from "@/components/select-combobox";
 import { DatePickerRange } from "@/components/date-picker-range";
@@ -109,7 +110,7 @@ export function SalesFilterDrawer({
           </div>
           {fields.filter((field) => (!hideCashier || field.key !== 'cashier') && (!hideStore || field.key !== 'store')).map(({ key, label, options }) => (
             <div key={key} className="space-y-2">
-              {key === 'store' ? (
+              {key === 'store' && (
                 <fieldset className="min-w-0 space-y-3">
                   <legend className="text-sm font-medium">Store</legend>
                   <div className="flex flex-wrap gap-2">
@@ -121,31 +122,32 @@ export function SalesFilterDrawer({
                     ))}
                   </div>
                 </fieldset>
-              ) : (
-              <>
-              <label
-                htmlFor={`sales-filter-${key}`}
-                className="text-sm font-medium"
-              >
-                {label}
-              </label>
-              <SelectCombobox
-                searchable={false}
-                id={`sales-filter-${key}`}
-                aria-label={label}
-                options={[{ value: "all", label: "Semua" }, ...options]}
-                value={draft[key]}
-                onChange={(value) =>
-                  setDraft((current) => ({ ...current, [key]: value || "all" }))
-                }
-              />
-              </>
+              )}
+              {key !== 'store' && (
+                <>
+                <label
+                  htmlFor={`sales-filter-${key}`}
+                  className="text-sm font-medium"
+                >
+                  {label}
+                </label>
+                <SelectCombobox
+                  searchable={false}
+                  id={`sales-filter-${key}`}
+                  aria-label={label}
+                  options={[{ value: "all", label: "Semua" }, ...options]}
+                  value={draft[key]}
+                  onChange={(value) =>
+                    setDraft((current) => ({ ...current, [key]: value || "all" }))
+                  }
+                />
+                </>
               )}
             </div>
           ))}
         </div>
         <DrawerFooter className="shrink-0">
-          <div className={hasDraftFilters ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
+          <div className={cn("grid gap-2", hasDraftFilters ? "grid-cols-2" : "grid-cols-1")}>
             {hasDraftFilters && (
               <Button
                 type="button"

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Plus, Search, X } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
@@ -37,6 +38,7 @@ export function ProductsPage() {
     : null;
   const [filters, setFilters] = useState(defaultProductFilters);
   const availableStores = getAccountBranches(store);
+  const statusLabel = filters.status === "active" ? "Aktif" : "Nonaktif";
   const filterChips = [
     ...(filters.store !== "all"
       ? [{
@@ -48,7 +50,7 @@ export function ProductsPage() {
       ? [
           {
             key: "status" as const,
-            label: filters.status === "active" ? "Aktif" : "Nonaktif",
+            label: statusLabel,
           },
         ]
       : []),
@@ -139,9 +141,12 @@ export function ProductsPage() {
       </header>
       <main
         id="main-content"
-        className={`min-w-0 flex-1 px-4 pb-6 ${filterChips.length ? "pt-[calc(148px+env(safe-area-inset-top)+1rem)]" : "pt-[calc(104px+env(safe-area-inset-top)+1rem)]"}`}
+        className={cn(
+          "min-w-0 flex-1 px-4 pb-6",
+          filterChips.length ? "pt-[calc(148px+env(safe-area-inset-top)+1rem)]" : "pt-[calc(104px+env(safe-area-inset-top)+1rem)]",
+        )}
       >
-        {catalog.isPending ? (
+        {catalog.isPending && (
           <div role="status" aria-label="Memuat produk" aria-busy="true">
             <span className="sr-only">Memuat produk...</span>
             <ul aria-hidden="true" className="grid grid-cols-2 gap-x-3 gap-y-6">
@@ -156,12 +161,14 @@ export function ProductsPage() {
               ))}
             </ul>
           </div>
-        ) : catalog.isError ? (
+        )}
+        {!catalog.isPending && catalog.isError && (
           <div role="alert" className="space-y-3 py-16 text-center">
             <p className="text-sm">Gagal memuat produk. Silakan coba lagi.</p>
             <Button type="button" variant="outline" onClick={() => void catalog.refetch()} loading={catalog.isFetching}>Coba lagi</Button>
           </div>
-        ) : products.length ? (
+        )}
+        {catalog.isSuccess && products.length > 0 && (
           <ul className="grid grid-cols-2 gap-x-3 gap-y-6">
             {products.map((product) => (
               <li key={product.id} className="min-w-0">
@@ -169,7 +176,8 @@ export function ProductsPage() {
               </li>
             ))}
           </ul>
-        ) : (
+        )}
+        {!catalog.isPending && !catalog.isError && !products.length && (
           <div className="flex flex-col items-center gap-2 py-16 text-center">
             <Search size={32} className="text-zinc-300" aria-hidden="true" />
             <div>

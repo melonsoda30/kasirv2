@@ -82,7 +82,7 @@ export function TrendingProducts({ trending }: { trending: TrendingProductsData 
         <SelectCombobox id={id} aria-labelledby={`${id}-label`} options={options} value={day} onChange={setSelectedDay}
           searchable={false} className="w-32" />
       </div>
-      {products.length ? (
+      {products.length > 0 && (
         <ChartContainer config={trendingConfig} role="group" aria-label={`Grafik produk terlaris hari ${day}`}
           className="aspect-auto w-full" style={{ height: Math.max(64, products.length * 36 + 8) }}>
           <BarChart accessibilityLayer data={products} layout="vertical" margin={{ right: 44 }}>
@@ -109,7 +109,10 @@ export function TrendingProducts({ trending }: { trending: TrendingProductsData 
             </Bar>
           </BarChart>
         </ChartContainer>
-      ) : <p className="text-sm text-muted-foreground">Belum ada produk terjual pada hari yang dipilih.</p>}
+      )}
+      {!products.length && (
+        <p className="text-sm text-muted-foreground">Belum ada produk terjual pada hari yang dipilih.</p>
+      )}
     </div>
   );
 }

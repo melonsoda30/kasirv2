@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,9 +83,10 @@ export function StockDrawer({
           <DrawerDescription>{item.product_name}</DrawerDescription>
         </DrawerHeader>
         <div className="min-h-0 space-y-4 overflow-y-auto px-4 pb-4">
-          {history.length === 0 ? (
+          {history.length === 0 && (
             <p className="text-muted-foreground">Belum ada histori stok.</p>
-          ) : (
+          )}
+          {history.length > 0 && (
             <ul className="divide-y rounded-md border">
               {history.map((entry, index) => (
                 <li
@@ -103,14 +105,15 @@ export function StockDrawer({
                       <time dateTime={entry.at.replace(" ", "T")}>
                         {entry.at}
                       </time>
-                      {/* {(entry.by_name || entry.by_username) && ` · ${entry.by_name || entry.by_username}`} */}
                     </p>
                   </div>
                   <span
                     className={
+                      cn(
                       entry.delta < 0
                         ? "font-medium text-destructive"
-                        : "font-medium"
+                        : "font-medium",
+                    )
                     }
                   >
                     {entry.delta > 0 ? `+${entry.delta}` : entry.delta}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ImageOff, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 
 export interface UploadStatus {
@@ -127,7 +128,12 @@ export function ImageInput({
         {label}
       </span>
       <div
-        className={`relative overflow-hidden rounded-lg border transition-colors ${dragging ? "border-primary bg-primary/5" : value ? "border-input bg-background" : "border-input bg-muted/20"}`}
+        className={cn(
+          "relative overflow-hidden rounded-lg border transition-colors",
+          dragging && "border-primary bg-primary/5",
+          !dragging && value && "border-input bg-background",
+          !dragging && !value && "border-input bg-muted/20",
+        )}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
@@ -165,18 +171,22 @@ export function ImageInput({
           aria-disabled={status.busy}
           aria-labelledby={`${id}-label ${id}-action`}
           aria-describedby={`${id}-help${status.error ? ` ${id}-error` : ""}`}
-          className={`flex cursor-pointer text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-disabled:cursor-wait ${value ? "absolute inset-0 items-end justify-center p-3 hover:bg-foreground/5" : "min-h-24 items-center gap-3 py-4 pl-4 pr-12 text-left hover:bg-muted/50"}`}
+          className={cn(
+            "flex cursor-pointer text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-disabled:cursor-wait",
+            value ? "absolute inset-0 items-end justify-center p-3 hover:bg-foreground/5" : "min-h-24 items-center gap-3 py-4 pl-4 pr-12 text-left hover:bg-muted/50",
+          )}
           onKeyDown={(event) => {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
             if (!status.busy) inputRef.current?.click();
           }}
         >
-          {value ? (
+          {value && (
             <span className="px-2.5 py-1 text-foreground ">
               Klik untuk mengganti gambar
             </span>
-          ) : (
+          )}
+          {!value && (
             <>
               <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-primary">
                 <ImagePlus className="size-5" aria-hidden="true" />

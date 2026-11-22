@@ -39,6 +39,7 @@ export function ProductImage({
     (product.image
       ? `https://images.unsplash.com/${product.image}?auto=format&fit=crop&w=640&q=80`
       : "");
+  const showImage = !!source && failedSource !== source;
   return (
     <div
       className={cn(
@@ -47,13 +48,14 @@ export function ProductImage({
         detail && "p-4",
       )}
     >
-      {!source || failedSource === source ? (
+      {!showImage && (
         <Package
           size={40}
           className="text-muted-foreground"
           aria-label={product.title}
         />
-      ) : (
+      )}
+      {showImage && (
         <img
           src={source}
           alt={product.title}
@@ -62,12 +64,8 @@ export function ProductImage({
           loading="lazy"
           className={cn(
             "h-auto w-full object-cover aspect-square",
-            !detail &&
-              (!product.active
-                ? "grayscale opacity-40"
-                : product.stock === 0
-                  ? "grayscale opacity-60"
-                  : ""),
+            !detail && !product.active && "grayscale opacity-40",
+            !detail && product.active && product.stock === 0 && "grayscale opacity-60",
           )}
           onError={() => setFailedSource(source)}
         />
@@ -76,18 +74,14 @@ export function ProductImage({
         <span
           className={cn(
             "absolute left-2 top-2 rounded px-2 py-1 text-xs font-medium",
-            !product.active
-              ? "bg-zinc-800 text-white"
-              : product.stock === 0
-                ? "bg-destructive text-white"
-                : "bg-background/95 text-foreground",
+            !product.active && "bg-zinc-800 text-white",
+            product.active && product.stock === 0 && "bg-destructive text-white",
+            product.active && product.stock !== 0 && "bg-background/95 text-foreground",
           )}
         >
-          {!product.active
-            ? "Nonaktif"
-            : product.stock === 0
-              ? "Habis"
-              : "Aktif"}
+          {!product.active && "Nonaktif"}
+          {product.active && product.stock === 0 && "Habis"}
+          {product.active && product.stock !== 0 && "Aktif"}
         </span>
       )}
     </div>
@@ -97,7 +91,10 @@ export function ProductImage({
 function Stock({ product }: { product: Product }) {
   return (
     <span
-      className={`shrink-0 text-xs ${product.stock === 0 ? "text-destructive" : "text-muted-foreground"}`}
+      className={cn(
+        "shrink-0 text-xs",
+        product.stock === 0 ? "text-destructive" : "text-muted-foreground",
+      )}
     >
       {product.stock === 0 ? "Habis" : `${product.stock} tersisa`}
     </span>

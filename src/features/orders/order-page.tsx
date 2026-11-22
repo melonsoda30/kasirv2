@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Minus, Plus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Drawer,
+  DrawerClose,
   DrawerTrigger,
   DrawerContent,
   DrawerHeader,
@@ -13,7 +14,11 @@ import {
   DrawerDescription,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { isAdminAccount, isCashierEventLevel, useAuthStore } from "@/features/auth/auth-store";
+import {
+  isAdminAccount,
+  isCashierEventLevel,
+  useAuthStore,
+} from "@/features/auth/auth-store";
 import { ProductImage } from "@/features/products/product-card";
 import { ProductPrice } from "@/features/products/product-price";
 import { getProductPricing } from "@/features/products/product-pricing";
@@ -22,10 +27,16 @@ import { useProductCategories } from "@/features/products/use-product-categories
 import { formatCurrency } from "@/lib/currency";
 import { orderTotal, productKey, useOrderStore } from "./order-store";
 import { OrderSummary, PayOrderButton } from "./order-summary";
+import { PendingOrderButton } from "./pending-order-button";
+import { CashSessionControl } from "@/features/cash-session/cash-session-control";
+import { cashSessionAllowsSales, useCashSession } from "@/features/cash-session/cash-session-query";
 import { useOrderProducts } from "./order-products";
 import { OrderQuantityButtons } from "./order-quantity-buttons";
 import { OrderCategoryReorderDrawer } from "./order-category-reorder-drawer";
-import { getOrderCategories, useOrderCategoryOrder } from "./order-category-order";
+import {
+  getOrderCategories,
+  useOrderCategoryOrder,
+} from "./order-category-order";
 
 function OrderProductCard({ product }: { product: Product }) {
   const [open, setOpen] = useState(false);
@@ -70,7 +81,11 @@ function OrderProductCard({ product }: { product: Product }) {
       </DrawerTrigger>
       {active && line && (
         <div className="mt-2">
-          <OrderQuantityButtons orderId={active.id} item={line} catalogProduct={product} />
+          <OrderQuantityButtons
+            orderId={active.id}
+            item={line}
+            catalogProduct={product}
+          />
         </div>
       )}
       <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)]">
@@ -164,13 +179,22 @@ function OrderProductCard({ product }: { product: Product }) {
 export function OrderPage({ home = false }: { home?: boolean }) {
   const account = useAuthStore((state) => state.session?.account);
   const accountId = account?.account_id;
+  const cashSession = useCashSession();
+  const canTransact = cashSessionAllowsSales(cashSession.data) && !cashSession.isError;
   const catalog = useOrderProducts();
+  const catalogUnavailable = catalog.isError && !catalog.data;
+  const showProducts = !catalog.isPending && !catalogUnavailable;
   const products = catalog.data?.products ?? [];
-  const canManageCategories = !isCashierEventLevel(account?.event_level) && isAdminAccount(account);
+  const canManageCategories =
+    !isCashierEventLevel(account?.event_level) && isAdminAccount(account);
   const storeCategories = useProductCategories(canManageCategories);
-  const categoryOrder = useOrderCategoryOrder(canManageCategories ? undefined : account);
-  const { owner, orders, activeId, initialize, createOrder } = useOrderStore();
+  const categoryOrder = useOrderCategoryOrder(
+    canManageCategories ? undefined : account,
+  );
+  const { owner, orders, activeId, initialize } = useOrderStore();
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const sessionControl = useRef<{ openMenu: () => void }>(null);
+  const openShiftAfterSummary = useRef(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   useEffect(() => {
@@ -178,17 +202,19 @@ export function OrderPage({ home = false }: { home?: boolean }) {
   }, [accountId, initialize]);
   const categories = getOrderCategories(
     products,
-    canManageCategories ? storeCategories.data ?? [] : [],
+    canManageCategories ? (storeCategories.data ?? []) : [],
     categoryOrder.order,
   );
-  const selectedCategory = categories.some(({ category_slug }) => category_slug === category) ? category : null;
+  const selectedCategory = categories.some(
+    ({ category_slug }) => category_slug === category,
+  )
+    ? category
+    : null;
   const keyword = search.trim().toLocaleLowerCase("id-ID");
   const visible = products.filter(
     (product) =>
       (selectedCategory === null || product.category === selectedCategory) &&
-      product.title
-        .toLocaleLowerCase("id-ID")
-        .includes(keyword),
+      product.title.toLocaleLowerCase("id-ID").includes(keyword),
   );
   const active = orders.find((order) => order.id === activeId);
   if (!accountId || owner !== accountId)
@@ -211,16 +237,7 @@ export function OrderPage({ home = false }: { home?: boolean }) {
             </Button>
           )}
           <h1 className="flex-1 text-lg font-semibold">Order</h1>
-          <Button asChild type="button" variant="outline" size="sm">
-            <Link to="/cart">
-              <ShoppingBag aria-hidden="true" />
-              {home ? "Antrean" : "Cart"} (
-              {orders
-                .find((order) => order.id === activeId)
-                ?.items.reduce((sum, item) => sum + item.quantity, 0) ?? 0}
-              )
-            </Link>
-          </Button>
+          <CashSessionControl presentation="popover" ref={sessionControl} />
         </div>
         <div className="px-4">
           <Input
@@ -233,7 +250,11 @@ export function OrderPage({ home = false }: { home?: boolean }) {
           />
         </div>
         <div className="flex h-14 items-center gap-2 px-4">
-          <div role="group" aria-label="Kategori produk" className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          <div
+            role="group"
+            aria-label="Kategori produk"
+            className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto"
+          >
             <Button
               type="button"
               variant={selectedCategory === null ? "default" : "outline"}
@@ -255,23 +276,46 @@ export function OrderPage({ home = false }: { home?: boolean }) {
             ))}
           </div>
           {canManageCategories ? (
-            <OrderCategoryReorderDrawer source="store" query={storeCategories} />
-          ) : catalog.data && (
-            <OrderCategoryReorderDrawer source="local" categories={categories} onSave={categoryOrder.save} />
+            <OrderCategoryReorderDrawer
+              source="store"
+              query={storeCategories}
+            />
+          ) : (
+            catalog.data && (
+              <OrderCategoryReorderDrawer
+                source="local"
+                categories={categories}
+                onSave={categoryOrder.save}
+              />
+            )
           )}
         </div>
       </header>
       <main id="main-content" className="min-w-0 flex-1 px-4 pt-4 pb-28">
-        {catalog.isPending ? (
-          <p role="status" className="py-12 text-center text-sm text-muted-foreground">Memuat produk...</p>
-        ) : catalog.isError && !catalog.data ? (
+        {catalog.isPending && (
+          <p
+            role="status"
+            className="py-12 text-center text-sm text-muted-foreground"
+          >
+            Memuat produk...
+          </p>
+        )}
+        {catalogUnavailable && (
           <div className="space-y-3 py-12 text-center">
-            <p role="alert" className="text-sm text-destructive">Gagal memuat produk.</p>
-            <Button type="button" variant="outline" loading={catalog.isFetching} onClick={() => void catalog.refetch()}>
+            <p role="alert" className="text-sm text-destructive">
+              Gagal memuat produk.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              loading={catalog.isFetching}
+              onClick={() => void catalog.refetch()}
+            >
               Coba lagi
             </Button>
           </div>
-        ) : visible.length ? (
+        )}
+        {showProducts && visible.length > 0 && (
           <ul className="grid grid-cols-2 gap-x-3 gap-y-6">
             {visible.map((product) => (
               <li key={productKey(product)} className="min-w-0">
@@ -279,14 +323,20 @@ export function OrderPage({ home = false }: { home?: boolean }) {
               </li>
             ))}
           </ul>
-        ) : (
+        )}
+        {showProducts && visible.length === 0 && (
           <p className="py-16 text-center text-sm text-muted-foreground">
             Produk tidak ditemukan.
           </p>
         )}
       </main>
-      {active && (
-        <Drawer open={summaryOpen} onOpenChange={setSummaryOpen}>
+      {active && account && (
+        <Drawer open={summaryOpen} onOpenChange={setSummaryOpen} onAnimationEnd={(open) => {
+          if (!open && openShiftAfterSummary.current) {
+            openShiftAfterSummary.current = false;
+            sessionControl.current?.openMenu();
+          }
+        }}>
           <div className="order-cart-bar fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 p-3">
             <DrawerTrigger asChild>
               <Button
@@ -313,25 +363,33 @@ export function OrderPage({ home = false }: { home?: boolean }) {
               <DrawerDescription>{active.name}</DrawerDescription>
             </DrawerHeader>
             <div className="min-h-0 overflow-y-auto px-4 pb-4">
-              <OrderSummary order={active} productsByKey={catalog.data?.byKey} />
+              <OrderSummary
+                order={active}
+                productsByKey={catalog.data?.byKey}
+              />
               {/* <Button asChild variant="ghost" className="mt-3 w-full">
                 <Link to="/cart">Lihat semua pesanan</Link>
               </Button> */}
             </div>
             <DrawerFooter className="border-t">
               <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto min-h-8 whitespace-normal py-2"
-                  onClick={() => {
-                    createOrder();
-                    setSummaryOpen(false);
-                  }}
-                >
-                  Buat pesanan baru
-                </Button>
-                <PayOrderButton order={active} />
+                {canTransact && (
+                  <>
+                    <PendingOrderButton key={active.id} account={account} order={active} onQueued={() => setSummaryOpen(false)} />
+                    <PayOrderButton order={active} />
+                  </>
+                )}
+                {!canTransact && (
+                  <>
+                    {['Masukkan ke antrean', 'Bayar pesanan'].map((label, index) => (
+                      <DrawerClose asChild key={label}>
+                        <Button type="button" variant={index === 0 ? 'outline' : 'default'}
+                          className="h-auto min-h-8 whitespace-normal py-2" disabled={!active.items.length}
+                          onClick={() => { openShiftAfterSummary.current = true; }}>{label}</Button>
+                      </DrawerClose>
+                    ))}
+                  </>
+                )}
               </div>
             </DrawerFooter>
           </DrawerContent>

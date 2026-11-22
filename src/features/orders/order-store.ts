@@ -5,7 +5,7 @@ import { getProductPricing } from '../products/product-pricing'
 import { useAuthStore } from '../auth/auth-store'
 
 export interface OrderLine { key: string; product: Product; quantity: number; unitPrice: number }
-export interface OrderDraft { id: string; name: string; items: OrderLine[] }
+export interface OrderDraft { id: string; name: string; items: OrderLine[]; note?: string }
 export const productKey = (product: Product) => JSON.stringify([product.id, product.storeId ?? '', product.branchId ?? ''])
 export const orderTotal = (order: OrderDraft) => order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
 
@@ -18,6 +18,7 @@ interface OrderState {
   createOrder: () => string
   selectOrder: (id: string) => void
   removeOrder: (id: string) => void
+  setOrderNote: (id: string, note: string) => void
   setQuantity: (product: Product, quantity: number) => string | null
   addItem: (product: Product, quantity: number) => string | null
 }
@@ -41,6 +42,9 @@ export const useOrderStore = create<OrderState>()(persist((set, get) => ({
     return id
   },
   selectOrder: (id) => { if (get().orders.some((order) => order.id === id)) set({ activeId: id }) },
+  setOrderNote: (id, note) => set((state) => ({
+    orders: state.orders.map((order) => order.id === id ? { ...order, note } : order),
+  })),
   removeOrder: (id) => {
     const orders = get().orders.filter((order) => order.id !== id)
     if (!orders.length) set({ orders, activeId: null, nextNumber: 1 })
@@ -63,8 +67,10 @@ export const useOrderStore = create<OrderState>()(persist((set, get) => ({
       set({ orders: [{ id, name: 'Antrian #1', items: [line] }], activeId: id, nextNumber: 2 })
       return null
     }
-    const items = quantity === 0 ? active.items.filter((item) => item.key !== key)
-      : existing ? active.items.map((item) => item.key === key ? line : item) : [...active.items, line]
+    let items: OrderLine[]
+    if (quantity === 0) items = active.items.filter((item) => item.key !== key)
+    else if (existing) items = active.items.map((item) => item.key === key ? line : item)
+    else items = [...active.items, line]
     set({ orders: state.orders.map((order) => order.id === active.id ? { ...order, items } : order) })
     return null
   },

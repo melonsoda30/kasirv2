@@ -1,5 +1,5 @@
 import { API_BASE_URL, request } from '../../lib/api'
-import type { SalesFilters } from './sales-filters'
+import type { TransactionFilters } from './sales-filters'
 import type { Sale, SaleStatus, SalesSummary } from './sales-summary'
 
 interface SummaryEntry { title: string; value: number | string }
@@ -12,7 +12,8 @@ interface TransactionListData {
   }
   data_trx: {
     trx_id: string; trx_kasir: string; trx_location: string; trx_date: string
-    trx_sales?: { id: string; name: string } | null
+    trx_sales?: { id: string | number; name: string } | null
+    trx_note?: string | null
     trx_total: string | number; trx_payment: string; trx_change: string | number
     trx_total_items: number; trx_status: string
   }[]
@@ -26,7 +27,10 @@ function amount(value: number | string) {
 }
 
 function paymentLabel(value: string) {
-  return value.toLowerCase() === 'cash' ? 'Tunai' : value.toLowerCase() === 'qris' ? 'QRIS' : value
+  const code = value.toLowerCase()
+  if (code === 'cash') return 'Tunai'
+  if (code === 'qris') return 'QRIS'
+  return value
 }
 
 export function mapTransactionList(response: TransactionListResponse | null) {
@@ -40,7 +44,7 @@ export function mapTransactionList(response: TransactionListResponse | null) {
   if (!data || !Array.isArray(data.data_trx) || !data.summary ||
       !Array.isArray(data.summary.transaction) || !Array.isArray(data.summary.summary) ||
       !Array.isArray(data.summary.payments)) throw new Error('Format daftar transaksi dari server tidak valid.')
-  const statuses: Record<string, SaleStatus> = { completed: 'complete', complete: 'complete', pending: 'pending', delete: 'delete', deleted: 'delete' }
+  const statuses: Record<string, SaleStatus> = { completed: 'complete', complete: 'complete', pending: 'pending', delete: 'delete', deleted: 'delete', cancelled: 'delete' }
   const sales: Sale[] = data.data_trx.map((trx) => {
     const date = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/.exec(trx.trx_date)
     const total = amount(trx.trx_total)
@@ -48,8 +52,9 @@ export function mapTransactionList(response: TransactionListResponse | null) {
     const salesperson = trx.trx_sales
     return {
       id: trx.trx_id, cashier: trx.trx_kasir, store: trx.trx_location,
-      ...(typeof salesperson?.id === 'string' && typeof salesperson.name === 'string' && salesperson.name.trim()
-        ? { salesperson: { id: salesperson.id, name: salesperson.name.trim() } }
+      ...(typeof trx.trx_note === 'string' && trx.trx_note.trim() ? { note: trx.trx_note.trim() } : {}),
+      ...((typeof salesperson?.id === 'string' || typeof salesperson?.id === 'number') && typeof salesperson.name === 'string' && salesperson.name.trim()
+        ? { salesperson: { id: String(salesperson.id), name: salesperson.name.trim() } }
         : {}),
       occurredAt: date ? `${date[3]}-${date[2]}-${date[1]}T${date[4]}:${date[5]}:00+07:00` : '',
       total, change, paid: total + change, paymentMethod: paymentLabel(trx.trx_payment),
@@ -77,43 +82,70 @@ function formatApiDate(date: Date | undefined) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-export function transactionListParams(filters: SalesFilters, search: string) {
+export function transactionListParams(filters: TransactionFilters, search: string) {
+  let payment = filters.paymentMethod
+  if (payment === 'Tunai') payment = 'cash'
+  if (payment === 'QRIS') payment = 'qris'
   return {
     action: 'list_trx',
     kasir: filters.cashier,
     sales: 'all',
     search: search.trim(),
     shift: 'all',
-    payment: filters.paymentMethod === 'Tunai' ? 'cash' : filters.paymentMethod === 'QRIS' ? 'qris' : filters.paymentMethod,
-    event_id: filters.store,
+    payment,
+    branch_id: filters.store,
+    ...(filters.status && { status: filters.status }),
     startDate: formatApiDate(filters.dateRange?.from),
     endDate: formatApiDate(filters.dateRange?.to),
     sku: 'all',
   }
 }
 
-export async function fetchTransactions(filters: SalesFilters, search: string, signal?: AbortSignal) {
+export async function fetchTransactions(filters: TransactionFilters, search: string, signal?: AbortSignal) {
   const response = await request<TransactionListResponse | null>({ url: '/transaksi/trx', method: 'GET', params: transactionListParams(filters, search), signal })
   return mapTransactionList(response)
 }
 
-export type TransactionDetailResponse = TransactionListData['data_trx'][number] & {
+type TransactionDetailData = TransactionListData['data_trx'][number] & {
+  trx_payment_fee?: string
+  trx_address?: string
+  trx_branch?: string
+  trx_subtotal?: string | number
+  trx_ppn?: string | number
+  trx_additional_price?: unknown[]
+  trx_discount?: unknown[]
   trx_nominal: string | number
   trx_upload_file: string
   trx_products: {
     menu_id: string; name: string; img: string; price: string | number
     qty: string | number; price_total: string | number
+    category?: string; description?: string
+    discount_type?: string; discount?: string | number
   }[]
 }
 
-export function mapTransactionDetail(response: TransactionDetailResponse): Sale {
+export type TransactionDetailResponse = TransactionDetailData | { status: string; msg?: string; data?: TransactionDetailData }
+
+export function mapTransactionDetail(result: TransactionDetailResponse | null): Sale {
+  let response: TransactionDetailData | null | undefined
+  if (result && typeof result === 'object' && 'status' in result) {
+    if (result.status !== 'success') throw new Error(result.msg || 'Gagal memuat detail transaksi.')
+    response = result.data
+  } else {
+    response = result
+  }
   if (!response || typeof response.trx_id !== 'string' || !Array.isArray(response.trx_products)) {
     throw new Error('Format detail transaksi dari server tidak valid.')
   }
   const sale = mapTransactionList({ summary: { transaction: [], summary: [], payments: [] }, data_trx: [response] }).sales[0]
-  const asset = (path: string) => path ? new URL(path, `${API_BASE_URL.replace(/\/$/, '')}/transaksi/`).href : ''
+  const asset = (path: string) => path && !/^[?#]/.test(path.trim())
+    ? new URL(path, `${API_BASE_URL.replace(/\/$/, '')}/transaksi/`).href : ''
+  const proofType = /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(response.trx_upload_file) ? 'image' : 'document'
   return {
     ...sale,
+    paymentCode: response.trx_payment,
+    ...(response.trx_subtotal !== undefined && { subtotal: amount(response.trx_subtotal) }),
+    ...(response.trx_ppn !== undefined && { tax: amount(response.trx_ppn) }),
     paid: amount(response.trx_nominal),
     items: response.trx_products.map((item) => ({
       productId: item.menu_id, title: item.name.trim(), quantity: amount(item.qty),
@@ -121,15 +153,16 @@ export function mapTransactionDetail(response: TransactionDetailResponse): Sale 
     })),
     paymentProof: response.trx_payment.toLowerCase() === 'qris' && response.trx_upload_file ? {
       url: asset(response.trx_upload_file), name: 'Buka bukti pembayaran',
-      type: /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(response.trx_upload_file) ? 'image' : 'document',
+      type: proofType,
     } : undefined,
   }
 }
 
 export async function fetchTransactionDetail(trxId: string, signal?: AbortSignal) {
-  const response = await request<TransactionDetailResponse>({
+  const response = await request<TransactionDetailResponse | null>({
     url: '/transaksi/trx', method: 'GET', params: { action: 'detail_trx', trx_id: trxId }, signal,
   })
-  if (response?.trx_id !== trxId) throw new Error('Detail transaksi tidak sesuai dengan transaksi yang dipilih.')
-  return mapTransactionDetail(response)
+  const sale = mapTransactionDetail(response)
+  if (sale.id !== trxId) throw new Error('Detail transaksi tidak sesuai dengan transaksi yang dipilih.')
+  return sale
 }

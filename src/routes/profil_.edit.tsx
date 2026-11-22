@@ -72,12 +72,10 @@ function EditProfileForm({ account }: { account: Account }) {
       toast.success(message || "Profil diperbarui.");
       await navigate({ to: "/profil" });
     } catch (cause) {
-      const message = isAxiosError<{ msg?: string }>(cause)
-        ? cause.response?.data?.msg ||
-          "Gagal menyimpan profil. Silakan coba lagi."
-        : cause instanceof Error
-          ? cause.message
-          : "Gagal menyimpan profil.";
+      let message = cause instanceof Error ? cause.message : "Gagal menyimpan profil.";
+      if (isAxiosError<{ msg?: string }>(cause)) {
+        message = cause.response?.data?.msg || "Gagal menyimpan profil. Silakan coba lagi.";
+      }
       toast.error(message);
     } finally {
       setBusy(false);

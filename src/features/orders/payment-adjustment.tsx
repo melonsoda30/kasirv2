@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { DrawerClose, DrawerFooter } from '@/components/ui/drawer'
@@ -17,7 +18,10 @@ export function PaymentAdjustment({
   const id = useId()
   const [name, setName] = useState(initial?.name ?? '')
   const [type, setType] = useState<Discount['type']>(initial && 'type' in initial ? initial.type : 'nominal')
-  const [value, setValue] = useState(initial ? String('amount' in initial ? initial.amount : initial.value) : '')
+  const [value, setValue] = useState(() => {
+    if (!initial) return ''
+    return String('amount' in initial ? initial.amount : initial.value)
+  })
   const percent = kind === 'discount' && type === 'percent'
   const amount = Number(value)
   const valid = name.trim().length > 0 && amount > 0 &&
@@ -53,7 +57,9 @@ export function PaymentAdjustment({
           </fieldset>
         )}
         <label className="grid gap-2 font-medium">
-          {kind === 'fee' ? 'Harga (Rp)' : percent ? 'Nilai (%)' : 'Nilai (Rp)'}
+          {kind === 'fee' && 'Harga (Rp)'}
+          {kind === 'discount' && percent && 'Nilai (%)'}
+          {kind === 'discount' && !percent && 'Nilai (Rp)'}
           {percent ? (
             <Input type="number" inputMode="decimal" min="0" max="100" step="any" value={value}
               onChange={(event) => setValue(event.target.value)} required />
@@ -63,7 +69,7 @@ export function PaymentAdjustment({
         </label>
       </form>
       <DrawerFooter className="shrink-0 border-t">
-        <div className={initial ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
+        <div className={cn('grid gap-2', initial ? 'grid-cols-3' : 'grid-cols-2')}>
           <DrawerClose asChild><Button type="button" variant="outline">Batal</Button></DrawerClose>
           {initial && <Button type="button" variant="destructive" onClick={onRemove}>Hapus</Button>}
           <Button type="submit" form={id} disabled={!valid}>Simpan</Button>

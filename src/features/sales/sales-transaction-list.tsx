@@ -1,8 +1,9 @@
 import { ImageOff } from "lucide-react";
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/features/auth/auth-store';
-import { fetchTransactionDetail } from './sales-api';
+import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { cn } from "cn";
+import { useAuthStore } from "@/features/auth/auth-store";
+import { fetchTransactionDetail } from "./sales-api";
 import { useProductStore } from "@/features/products/product-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +31,7 @@ const dateTime = new Intl.DateTimeFormat("id-ID", {
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
-  timeZone: 'Asia/Jakarta',
+  timeZone: "Asia/Jakarta",
 });
 
 function SaleInformation({ sale }: { sale: Sale }) {
@@ -76,9 +77,12 @@ function SaleCardContent({ sale }: { sale: Sale }) {
           </span>
         </span>
         <span
-          className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${statusClasses[sale.status]}`}
+          className={cn(
+            "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium",
+            statusClasses[sale.status],
+          )}
         >
-          {sale.status === 'unknown' ? 'Status belum tersedia' : sale.status}
+          {sale.status === "unknown" ? "Status belum tersedia" : sale.status}
         </span>
       </span>
       <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -92,7 +96,7 @@ function SaleCardContent({ sale }: { sale: Sale }) {
           {sale.paymentMethod}
         </span>
       </span>
-      {cash && (
+      {cash && sale.status !== "pending" && (
         <span className="flex items-center justify-between gap-3 rounded-md bg-muted/60 px-3 py-2 text-sm">
           <span className="text-foreground">Kembali</span>
           <span className="font-medium text-foreground tabular-nums">
@@ -100,6 +104,7 @@ function SaleCardContent({ sale }: { sale: Sale }) {
           </span>
         </span>
       )}
+      {sale.note && <span className="whitespace-pre-wrap break-words text-sm">{sale.note}</span>}
       <span className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
         <span
           className="min-w-0 break-all font-mono"
@@ -113,11 +118,13 @@ function SaleCardContent({ sale }: { sale: Sale }) {
   );
 }
 
-export function SalesTransactionList({ sales }: { sales: readonly Sale[] }) {
+export function SalesTransactionList({ sales, queue = false, renderActions }: { sales: readonly Sale[]; queue?: boolean; renderActions?: (sale: Sale) => ReactNode }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const username = useAuthStore((state) => state.session?.account.account_username);
+  const username = useAuthStore(
+    (state) => state.session?.account.account_username,
+  );
   const detail = useQuery({
-    queryKey: ['transactions', 'detail', username, selectedId],
+    queryKey: ["transactions", "detail", username, selectedId],
     queryFn: ({ signal }) => fetchTransactionDetail(selectedId!, signal),
     enabled: !!selectedId && !!username,
     staleTime: 0,
@@ -135,186 +142,268 @@ export function SalesTransactionList({ sales }: { sales: readonly Sale[] }) {
   if (!sales.length) return null;
   return (
     <section
-      className="mt-6 space-y-3"
-      aria-labelledby="sales-transactions-title"
+      className={cn(!queue && "mt-6 space-y-3")}
+      aria-label={queue ? "Antrean pesanan" : undefined}
+      aria-labelledby={queue ? undefined : "sales-transactions-title"}
     >
-      <div className="flex items-center justify-between gap-3">
+      {!queue && <div className="flex items-center justify-between gap-3">
         <h2 id="sales-transactions-title" className="font-semibold">
           Daftar transaksi
         </h2>
         <span className="text-sm text-muted-foreground">
           {sales.length} transaksi
         </span>
-      </div>
+      </div>}
       <ul className="grid min-w-0 grid-cols-1 gap-2">
         {sales.map((listedSale) => {
-          const sale = selectedId === listedSale.id && detail.data
-            ? { ...detail.data, salesperson: detail.data.salesperson ?? listedSale.salesperson }
-            : listedSale;
+          const detailLoading = detail.isPending || selectedId !== listedSale.id;
+          const sale =
+            selectedId === listedSale.id && detail.data
+              ? {
+                  ...detail.data,
+                  note: detail.data.note ?? listedSale.note,
+                  salesperson:
+                    detail.data.salesperson ?? listedSale.salesperson,
+                }
+              : listedSale;
           return (
-          <li key={sale.id} className="min-w-0">
-            <Drawer onOpenChange={(open) => setSelectedId(open ? listedSale.id : null)}>
-              <DrawerTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`Detail penjualan ${sale.id}, ${sale.store}`}
-                  className="w-full rounded-lg border bg-background p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <SaleCardContent sale={listedSale} />
-                </button>
-              </DrawerTrigger>
-              <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-                <DrawerHeader className="shrink-0 border-b text-left">
-                  <DrawerTitle>Detail transaksi</DrawerTitle>
-                  <DrawerDescription className="break-all font-mono text-xs">
-                    {sale.id}
-                  </DrawerDescription>
-                </DrawerHeader>
-                <div className="min-h-0 space-y-3 overflow-y-auto p-4">
-                  {detail.isPending || selectedId !== listedSale.id ? (
-                    <div role="status" aria-label="Memuat detail transaksi" className="space-y-3">
-                      <span className="sr-only">Memuat detail transaksi</span>
-                      {[0, 1, 2].map((item) => <div key={item} aria-hidden="true" className="h-16 rounded-md bg-muted motion-safe:animate-pulse" />)}
-                    </div>
-                  ) : detail.isError ? (
-                    <div role="alert" className="space-y-3 py-6 text-center">
-                      <p className="text-sm">Gagal memuat detail transaksi.</p>
-                      <Button type="button" variant="outline" loading={detail.isFetching} onClick={() => void detail.refetch()}>Coba lagi</Button>
-                    </div>
-                  ) : (
-                  <>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 break-words text-base font-semibold">
-                      {sale.store}
-                    </p>
-                    <span
-                      className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${statusClasses[sale.status]}`}
-                    >
-                      {sale.status === 'unknown' ? 'Status belum tersedia' : sale.status}
-                    </span>
-                  </div>
-                  <section aria-label="Produk terjual">
-                    {sale.items.length ? (
-                      <ul className="divide-y">
-                        {sale.items.map((item, index) => (
-                          <li
-                            key={`${item.productId}-${index}`}
-                            className="flex items-center gap-3 py-2.5"
-                          >
-                            <div className="relative flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
-                              <ImageOff
-                                className="size-4 text-muted-foreground"
-                                aria-hidden="true"
-                              />
-                              {(item.image || productImages.get(item.productId)) && (
-                                <img
-                                  src={item.image || productImages.get(item.productId)}
-                                  alt=""
-                                  loading="lazy"
-                                  className="absolute inset-0 size-full object-cover"
-                                  onError={(event) => {
-                                    event.currentTarget.style.display = "none";
-                                  }}
-                                />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="break-words font-medium">
-                                {item.title}
-                              </p>
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {item.quantity} ×{" "}
-                                {item.unitPrice == null
-                                  ? "Harga belum tersedia"
-                                  : formatCurrency(item.unitPrice)}
-                              </p>
-                            </div>
-                            {item.unitPrice != null && (
-                              <p className="shrink-0 text-sm font-medium tabular-nums">
-                                {formatCurrency(item.lineTotal ?? item.quantity * item.unitPrice)}
-                              </p>
-                            )}
-                          </li>
+            <li key={sale.id} className="min-w-0">
+              <Drawer
+                onOpenChange={(open) =>
+                  setSelectedId(open ? listedSale.id : null)
+                }
+              >
+                <DrawerTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Detail penjualan ${sale.id}, ${sale.store}`}
+                    className="w-full rounded-lg border bg-background p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <SaleCardContent sale={listedSale} />
+                  </button>
+                </DrawerTrigger>
+                <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+                  <DrawerHeader className="shrink-0 border-b text-left">
+                    <DrawerTitle>Detail transaksi</DrawerTitle>
+                    <DrawerDescription className="break-all font-mono text-xs">
+                      {sale.id}
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="min-h-0 space-y-3 overflow-y-auto p-4">
+                    {detailLoading && (
+                      <div
+                        role="status"
+                        aria-label="Memuat detail transaksi"
+                        className="space-y-3"
+                      >
+                        <span className="sr-only">Memuat detail transaksi</span>
+                        {[0, 1, 2].map((item) => (
+                          <div
+                            key={item}
+                            aria-hidden="true"
+                            className="h-16 rounded-md bg-muted motion-safe:animate-pulse"
+                          />
                         ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Rincian item belum tersedia.
-                      </p>
-                    )}
-                  </section>
-                  <section
-                    aria-label="Total dan metode pembayaran"
-                    className="space-y-2 border-t pt-3"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <h3 className="text-xs text-muted-foreground">
-                          Metode pembayaran
-                        </h3>
-                        <p className="mt-1 text-sm font-medium">
-                          {sale.paymentMethod}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Total</p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums">
-                          {formatCurrency(sale.total)}
-                        </p>
-                      </div>
-                    </div>
-                    {["tunai", "cash"].includes(
-                      sale.paymentMethod.trim().toLowerCase(),
-                    ) && (
-                      <div className="flex items-center justify-end gap-3 text-sm">
-                        <span className="text-muted-foreground">Kembali</span>
-                        <span className="font-medium tabular-nums">
-                          {formatCurrency(sale.change ?? Math.max(0, sale.paid - sale.total))}
-                        </span>
                       </div>
                     )}
-                  </section>
-                  <section
-                    aria-label="Informasi transaksi"
-                    className="border-t pt-3"
-                  >
-                    <SaleInformation sale={sale} />
-                  </section>
-                  {sale.paymentMethod.trim().toLowerCase() === "qris" && (
-                    <section
-                      aria-label="Bukti pembayaran"
-                      className="space-y-2 border-t pt-3"
-                    >
-                      <h3 className="text-sm font-semibold">
-                        Bukti pembayaran
-                      </h3>
-                      {sale.paymentProof ? (
-                        <a href={sale.paymentProof.url} target="_blank" rel="noopener noreferrer" className="block space-y-2 rounded-lg border p-3 text-sm">
-                          {sale.paymentProof.type === 'image' && <img src={sale.paymentProof.url} alt={`Bukti pembayaran ${sale.id}`} loading="lazy" className="max-h-96 w-full rounded-md object-contain" onError={(event) => { event.currentTarget.style.display = 'none' }} />}
-                          <span className="underline underline-offset-4">Buka bukti pembayaran</span>
-                        </a>
-                      ) : <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
-                        Bukti pembayaran belum tersedia.
-                      </div>}
-                    </section>
-                  )}
-                  </>
-                  )}
-                </div>
-                <DrawerFooter className="shrink-0 border-t">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button type="button" variant="outline">
-                      Edit
-                    </Button>
-                    <Button type="button" variant="outline">
-                      Delete
-                    </Button>
+                    {!detailLoading && detail.isError && (
+                      <div role="alert" className="space-y-3 py-6 text-center">
+                        <p className="text-sm">
+                          Gagal memuat detail transaksi.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          loading={detail.isFetching}
+                          onClick={() => void detail.refetch()}
+                        >
+                          Coba lagi
+                        </Button>
+                      </div>
+                    )}
+                    {!detailLoading && !detail.isError && (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="min-w-0 break-words text-base font-semibold">
+                            {sale.store}
+                          </p>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium",
+                              statusClasses[sale.status],
+                            )}
+                          >
+                            {sale.status === "unknown"
+                              ? "Status belum tersedia"
+                              : sale.status}
+                          </span>
+                        </div>
+                        <section aria-label="Produk terjual">
+                          {sale.items.length > 0 && (
+                            <ul className="divide-y">
+                              {sale.items.map((item, index) => (
+                                <li
+                                  key={`${item.productId}-${index}`}
+                                  className="flex items-center gap-3 py-2.5"
+                                >
+                                  <div className="relative flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+                                    <ImageOff
+                                      className="size-4 text-muted-foreground"
+                                      aria-hidden="true"
+                                    />
+                                    {(item.image ||
+                                      productImages.get(item.productId)) && (
+                                      <img
+                                        src={
+                                          item.image ||
+                                          productImages.get(item.productId)
+                                        }
+                                        alt=""
+                                        loading="lazy"
+                                        className="absolute inset-0 size-full object-cover"
+                                        onError={(event) => {
+                                          event.currentTarget.style.display =
+                                            "none";
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="break-words font-medium">
+                                      {item.title}
+                                    </p>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                      {item.quantity} ×{" "}
+                                      {item.unitPrice == null
+                                        ? "Harga belum tersedia"
+                                        : formatCurrency(item.unitPrice)}
+                                    </p>
+                                  </div>
+                                  {item.unitPrice != null && (
+                                    <p className="shrink-0 text-sm font-medium tabular-nums">
+                                      {formatCurrency(
+                                        item.lineTotal ??
+                                          item.quantity * item.unitPrice,
+                                      )}
+                                    </p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {!sale.items.length && (
+                            <p className="text-sm text-muted-foreground">
+                              Rincian item belum tersedia.
+                            </p>
+                          )}
+                        </section>
+                        <section
+                          aria-label="Total dan metode pembayaran"
+                          className="space-y-2 border-t pt-3"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <h3 className="text-xs text-muted-foreground">
+                                Metode pembayaran
+                              </h3>
+                              <p className="mt-1 text-sm font-medium">
+                                {sale.paymentMethod}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">
+                                Total
+                              </p>
+                              <p className="mt-1 text-lg font-semibold tabular-nums">
+                                {formatCurrency(sale.total)}
+                              </p>
+                            </div>
+                          </div>
+                          {sale.status !== "pending" && ["tunai", "cash"].includes(
+                            sale.paymentMethod.trim().toLowerCase(),
+                          ) && (
+                            <div className="flex items-center justify-end gap-3 text-sm">
+                              <span className="text-muted-foreground">
+                                Kembali
+                              </span>
+                              <span className="font-medium tabular-nums">
+                                {formatCurrency(
+                                  sale.change ??
+                                    Math.max(0, sale.paid - sale.total),
+                                )}
+                              </span>
+                            </div>
+                          )}
+                        </section>
+                        <section
+                          aria-label="Informasi transaksi"
+                          className="border-t pt-3"
+                        >
+                          <SaleInformation sale={sale} />
+                        </section>
+                        {sale.note && (
+                          <section className="space-y-1 border-t pt-3">
+                            <h3 className="font-medium">Catatan pesanan</h3>
+                            <p className="whitespace-pre-wrap break-words">{sale.note}</p>
+                          </section>
+                        )}
+                        {sale.paymentMethod.trim().toLowerCase() === "qris" && (
+                          <section
+                            aria-label="Bukti pembayaran"
+                            className="space-y-2 border-t pt-3"
+                          >
+                            <h3 className="text-sm font-semibold">
+                              Bukti pembayaran
+                            </h3>
+                            {sale.paymentProof ? (
+                              <a
+                                href={sale.paymentProof.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block space-y-2 rounded-lg border p-3 text-sm"
+                              >
+                                {sale.paymentProof.type === "image" && (
+                                  <img
+                                    src={sale.paymentProof.url}
+                                    alt={`Bukti pembayaran ${sale.id}`}
+                                    loading="lazy"
+                                    className="max-h-96 w-full rounded-md object-contain"
+                                    onError={(event) => {
+                                      event.currentTarget.style.display =
+                                        "none";
+                                    }}
+                                  />
+                                )}
+                                <span className="underline underline-offset-4">
+                                  Buka bukti pembayaran
+                                </span>
+                              </a>
+                            ) : (
+                              <div className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
+                                Bukti pembayaran belum tersedia.
+                              </div>
+                            )}
+                          </section>
+                        )}
+                      </>
+                    )}
                   </div>
-                </DrawerFooter>
-              </DrawerContent>
-            </Drawer>
-          </li>
-        )})}
+                  {!queue && <DrawerFooter className="shrink-0 border-t">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant="outline">
+                        Edit
+                      </Button>
+                      <Button type="button" variant="outline">
+                        Delete
+                      </Button>
+                    </div>
+                  </DrawerFooter>}
+                </DrawerContent>
+              </Drawer>
+              {renderActions?.(listedSale)}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

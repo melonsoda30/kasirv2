@@ -115,9 +115,10 @@ function ChangePasswordForm() {
       heading.current?.focus();
     } catch (cause) {
       const fallback = "Perubahan gagal. Silakan coba lagi.";
-      const message = isAxiosError<{ msg?: string }>(cause)
-        ? cause.response?.data?.msg || fallback
-        : cause instanceof Error ? cause.message : fallback;
+      let message = cause instanceof Error ? cause.message : fallback;
+      if (isAxiosError<{ msg?: string }>(cause)) {
+        message = cause.response?.data?.msg || fallback;
+      }
       if (useAuthStore.getState().session) setError(message);
       else toast.error(message);
     } finally {
@@ -134,21 +135,17 @@ function ChangePasswordForm() {
             tabIndex={-1}
             className="font-semibold outline-none"
           >
-            {step === "verify"
-              ? "Konfirmasi password sekarang"
-              : step === "change"
-                ? "Buat password baru"
-                : "Password berhasil diganti"}
+            {step === "verify" && "Konfirmasi password sekarang"}
+            {step === "change" && "Buat password baru"}
+            {step === "done" && "Password berhasil diganti"}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {step === "verify"
-              ? "Masukkan password sekarang untuk melanjutkan."
-              : step === "change"
-                ? "Gunakan minimal 8 karakter dan konfirmasi password baru Anda."
-                : "Gunakan password baru saat login berikutnya."}
+            {step === "verify" && "Masukkan password sekarang untuk melanjutkan."}
+            {step === "change" && "Gunakan minimal 8 karakter dan konfirmasi password baru Anda."}
+            {step === "done" && "Gunakan password baru saat login berikutnya."}
           </p>
         </div>
-        {step !== "done" ? (
+        {step !== "done" && (
           <form onSubmit={submit} className="space-y-4" aria-busy={busy}>
             {step === "verify" ? (
               <PasswordField
@@ -204,7 +201,8 @@ function ChangePasswordForm() {
               </Button>
             )}
           </form>
-        ) : (
+        )}
+        {step === "done" && (
           <Button asChild className="w-full">
             <Link to="/profil">Kembali ke profil</Link>
           </Button>

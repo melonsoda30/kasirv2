@@ -9,6 +9,8 @@ export interface SalesFilters {
   product: string;
 }
 
+export type TransactionFilters = SalesFilters & { status?: 'pending' };
+
 export const defaultSalesFilters: SalesFilters = {
   dateRange: undefined,
   paymentMethod: "all",

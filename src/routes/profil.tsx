@@ -1,9 +1,11 @@
 ﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { cn } from "cn";
 import { PageLayout } from "../components/page-layout";
 import {
   ArrowRight,
   ChevronRight,
   LockKeyhole,
+  ListOrdered,
   LogOut,
   Pencil,
   Clock,
@@ -14,7 +16,9 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { isCashierEventLevel, useAuthStore } from "@/features/auth/auth-store";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { isAdminAccount, isCashierEventLevel, useAuthStore } from "@/features/auth/auth-store";
+import { useCashSession } from "@/features/cash-session/cash-session-query";
 import { API_BASE_URL } from "@/lib/api";
 import { useState } from "react";
 
@@ -24,6 +28,7 @@ export const Route = createFileRoute("/profil")({
 
 const accountMenus = [
   { label: "Ganti Password", icon: LockKeyhole, to: "/profil/ganti-password" },
+  { label: "Antrean pesanan", icon: ListOrdered, to: "/cart" },
   { label: "Users", icon: Users, to: "/users" },
 ] as const;
 
@@ -32,9 +37,12 @@ const menuRowClass = "flex min-h-13 w-full items-center gap-3 px-4 py-3 text-sm 
 function ProfilePage() {
   const account = useAuthStore((state) => state.session?.account);
   const isCashier = isCashierEventLevel(account?.event_level);
-  const visibleAccountMenus = accountMenus.filter(({ to }) => !isCashier || to !== "/users");
+  const isAdmin = isAdminAccount(account);
+  const cashSession = useCashSession(isCashier || isAdmin);
+  const visibleAccountMenus = accountMenus.filter(({ to }) => to === "/cart" ? isAdmin : !isCashier || to !== "/users");
   const navigate = useNavigate();
   const [imageFailed, setImageFailed] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const image = account?.account_img
     ? new URL(account.account_img, `${API_BASE_URL.replace(/\/$/, "")}/`).href
     : "";
@@ -97,6 +105,14 @@ function ProfilePage() {
           </Link>
         )}
       </section>
+      {cashSession.data?.use_session && (
+        <Link to="/sesi-kas" className={cn(menuRowClass, "mt-4 rounded-xl border bg-background")}>
+          <Clock className="size-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1 font-medium">Shift</span>
+          <span className="text-xs text-muted-foreground">{cashSession.data.session ? 'Aktif' : 'Belum dibuka'}</span>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </Link>
+      )}
       <section aria-labelledby="profile-account-heading" className="mt-4">
         <h2
           id="profile-account-heading"
@@ -144,12 +160,24 @@ function ProfilePage() {
       )}
       <button
         type="button"
-        onClick={logout}
-        className={`${menuRowClass} mt-4 rounded-xl border bg-background text-left text-destructive`}
+        onClick={() => { if (cashSession.data?.session) setConfirmLogout(true); else void logout(); }}
+        className={cn(menuRowClass, "mt-4 rounded-xl border bg-background text-left text-destructive")}
       >
         <LogOut className="size-4 shrink-0" aria-hidden="true" />
         <span className="font-medium">Logout</span>
       </button>
+      <Dialog open={confirmLogout} onOpenChange={setConfirmLogout}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Shift masih aktif</DialogTitle>
+            <DialogDescription>Tutup buku jika Anda selesai bekerja. Jika keluar sekarang, shift tetap aktif saat Anda keluar.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Button asChild><Link to="/sesi-kas" search={{ close: true }} onClick={() => setConfirmLogout(false)}>Tutup buku</Link></Button>
+            <Button type="button" variant="outline" onClick={() => void logout()}>Keluar tanpa menutup shift</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 }

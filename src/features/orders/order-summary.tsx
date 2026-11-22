@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/currency'
 import { orderTotal } from './order-store'
 import type { OrderDraft } from './order-store'
 import { OrderItemRow } from './order-item-row'
+import { OrderNoteField } from './order-note-field'
 
 export function OrderSummary({ order, productsByKey }: { order: OrderDraft; productsByKey?: ReadonlyMap<string, Product> }) {
   return <div className="space-y-3">
@@ -15,6 +16,7 @@ export function OrderSummary({ order, productsByKey }: { order: OrderDraft; prod
         ))}
       </ul>
     ) : <p className="py-8 text-center text-sm text-muted-foreground">Pesanan belum memiliki produk.</p>}
+    <OrderNoteField order={order} nested />
     <div className="flex justify-between border-t pt-3 font-semibold"><span>Total</span><span className="tabular-nums">{formatCurrency(orderTotal(order))}</span></div>
   </div>
 }

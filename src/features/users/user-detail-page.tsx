@@ -14,17 +14,17 @@ export function UserDetailPage({ user }: { user: UserRecord }) {
   const accountStore = account?.store
   const name = userDisplayName(user)
   const image = user.user_foto ? new URL(user.user_foto, `${API_BASE_URL.replace(/\/$/, '')}/`).href : ''
-  const branchName = user.user_branch_id === 'all' ? 'Semua cabang'
-    : accountStore?.id === user.user_store_id
-      ? getAccountBranches(accountStore).find(({ id }) => id === user.user_branch_id)?.name
-      : undefined
+  const branch = accountStore?.id === user.user_store_id
+    ? getAccountBranches(accountStore).find(({ id }) => id === user.user_branch_id)
+    : undefined
+  const branchName = user.user_branch_id === 'all' ? 'Semua cabang' : branch?.name
   const details = [
     ['Toko', user.user_store_name || user.user_store_id], ['Cabang', branchName],
     ['Posisi', user.user_level || (user.is_cashier ? 'Kasir' : '')],
     ['ID pengguna', user.user_id], ['Username', user.user_username], ['Email', user.user_email],
     ['No. HP', user.user_phone], ['Alamat', user.user_address],
   ]
-  return <SalesPage userScope={{ id: user.user_id, storeId: user.user_store_id }} userCard={
+  return <SalesPage userScope={{ id: user.user_id, branchId: user.user_branch_id }} userCard={
     <section aria-label="Profil pengguna" className="rounded-lg border bg-background p-4">
       <div className="flex items-center gap-3">
         <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">

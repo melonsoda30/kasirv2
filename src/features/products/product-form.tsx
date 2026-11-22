@@ -158,12 +158,10 @@ export function ProductForm({ product }: { product?: Product }) {
         toast.success(message);
         await navigate({ to: "/produk" });
       } catch (error) {
-        const message = isAxiosError<{ msg?: string }>(error)
-          ? error.response?.data?.msg ||
-            "Gagal menyimpan produk. Silakan coba lagi."
-          : error instanceof Error
-            ? error.message
-            : "Gagal menyimpan produk.";
+        let message = error instanceof Error ? error.message : "Gagal menyimpan produk.";
+        if (isAxiosError<{ msg?: string }>(error)) {
+          message = error.response?.data?.msg || "Gagal menyimpan produk. Silakan coba lagi.";
+        }
         toast.error(message);
       } finally {
         setSaving(false);
@@ -423,8 +421,9 @@ export function ProductForm({ product }: { product?: Product }) {
               )}
             </form.Field>
             <form.Subscribe selector={(state) => state.values.discountType}>
-              {(discountType) =>
-                discountType && discountType !== discountTypes[0] ? (
+              {(discountType) => {
+                if (!discountType || discountType === discountTypes[0]) return null;
+                return (
                   <form.Field name="discount">
                     {(field) => (
                       <div className="space-y-2">
@@ -466,8 +465,8 @@ export function ProductForm({ product }: { product?: Product }) {
                       </div>
                     )}
                   </form.Field>
-                ) : null
-              }
+                );
+              }}
             </form.Subscribe>
           </fieldset>
 

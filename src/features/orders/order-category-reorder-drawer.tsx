@@ -19,7 +19,11 @@ import type { useProductCategories } from "@/features/products/use-product-categ
 
 type DrawerProps =
   | { source: "store"; query: ReturnType<typeof useProductCategories> }
-  | { source: "local"; categories: Category[]; onSave: (order: string[]) => void };
+  | {
+      source: "local";
+      categories: Category[];
+      onSave: (order: string[]) => void;
+    };
 
 function ReorderCategory({
   category,
@@ -48,12 +52,24 @@ function ReorderCategory({
           {category.product_count} produk
         </p>
       </div>
-      <Button type="button" variant="ghost" size="icon-sm" disabled={disabled || !moveUp}
-        aria-label={`Naikkan ${category.category_name}`} onClick={moveUp}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        disabled={disabled || !moveUp}
+        aria-label={`Naikkan ${category.category_name}`}
+        onClick={moveUp}
+      >
         <ArrowUp aria-hidden="true" />
       </Button>
-      <Button type="button" variant="ghost" size="icon-sm" disabled={disabled || !moveDown}
-        aria-label={`Turunkan ${category.category_name}`} onClick={moveDown}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        disabled={disabled || !moveDown}
+        aria-label={`Turunkan ${category.category_name}`}
+        onClick={moveDown}
+      >
         <ArrowDown aria-hidden="true" />
       </Button>
       <span
@@ -80,7 +96,8 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
     Category["category_id"][] | null
   >(null);
   const query = props.source === "store" ? props.query : undefined;
-  const currentOrder = props.source === "local" ? props.categories : props.query.data ?? [];
+  const currentOrder =
+    props.source === "local" ? props.categories : (props.query.data ?? []);
   const categoriesById = new Map(
     currentOrder.map((category) => [category.category_id, category]),
   );
@@ -116,9 +133,10 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
         }
       }
     },
-    onSettled: () => props.source === "store"
-      ? queryClient.invalidateQueries({ queryKey: ["product-categories"] })
-      : undefined,
+    onSettled: () =>
+      props.source === "store"
+        ? queryClient.invalidateQueries({ queryKey: ["product-categories"] })
+        : undefined,
     onSuccess: () => {
       setDraftOrder(null);
       setOpen(false);
@@ -168,9 +186,6 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
           layoutScroll
           className="min-h-0 space-y-6 overflow-y-auto px-4 py-4"
         >
-          {props.source === "local" && (
-            <p className="text-muted-foreground">Urutan berlaku untuk akun ini di perangkat ini.</p>
-          )}
           {query?.isPending && <p role="status">Memuat kategori...</p>}
           {query?.isError && (
             <div className="space-y-2">
@@ -187,11 +202,14 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
               </Button>
             </div>
           )}
-          {!currentOrder.length && (props.source === "local" || query?.isSuccess) && (
-            <p className="text-muted-foreground">Belum ada kategori.</p>
-          )}
+          {!currentOrder.length &&
+            (props.source === "local" || query?.isSuccess) && (
+              <p className="text-muted-foreground">Belum ada kategori.</p>
+            )}
           {currentOrder.length === 1 && (
-            <p className="text-muted-foreground">Perlu minimal dua kategori untuk mengubah urutan.</p>
+            <p className="text-muted-foreground">
+              Perlu minimal dua kategori untuk mengubah urutan.
+            </p>
           )}
           {error && (
             <p role="alert" className="text-destructive">
@@ -221,7 +239,11 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
                   category={category}
                   disabled={disabled}
                   moveUp={index > 0 ? () => move(index, index - 1) : undefined}
-                  moveDown={index < orderedCategories.length - 1 ? () => move(index, index + 1) : undefined}
+                  moveDown={
+                    index < orderedCategories.length - 1
+                      ? () => move(index, index + 1)
+                      : undefined
+                  }
                 />
               ))}
             </Reorder.Group>
