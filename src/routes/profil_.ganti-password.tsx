@@ -128,7 +128,7 @@ function ChangePasswordForm() {
 
   return (
     <PageLayout title="Ganti Password" prevLink="/profil">
-      <div className="space-y-5">
+      <div className="bento-surface space-y-5 p-4 sm:p-5">
         <div>
           <h2
             ref={heading}
@@ -146,7 +146,7 @@ function ChangePasswordForm() {
           </p>
         </div>
         {step !== "done" && (
-          <form onSubmit={submit} className="space-y-4" aria-busy={busy}>
+          <form key={step} onSubmit={submit} className="flow-panel space-y-4" aria-busy={busy}>
             {step === "verify" ? (
               <PasswordField
                 key="current"
@@ -180,7 +180,7 @@ function ChangePasswordForm() {
             )}
 
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" loading={busy} className="h-10 w-full">
+            <Button type="submit" loading={busy} className="w-full">
               {step === "verify" ? "Konfirmasi" : "Simpan password baru"}
             </Button>
             {step === "change" && (

@@ -9,7 +9,10 @@ export interface SalesFilters {
   product: string;
 }
 
-export type TransactionFilters = SalesFilters & { status?: 'pending' };
+export type TransactionFilters = Partial<Pick<SalesFilters, "dateRange" | "paymentMethod" | "cashier">> & {
+  sales?: string;
+  status?: "all" | "pending" | "completed" | "cancelled";
+};
 
 export const defaultSalesFilters: SalesFilters = {
   dateRange: undefined,
@@ -19,15 +22,15 @@ export const defaultSalesFilters: SalesFilters = {
   product: "all",
 };
 
-// Temporary choices until payment methods and cashiers are supplied by the API.
 export const paymentMethods = ["Tunai", "QRIS"];
-export const paymentOptions = [{ value: 'cash', label: 'Tunai' }, { value: 'qris', label: 'QRIS' }];
 export const cashiers = ["Kasir 1", "Kasir 2"];
 
 export function salesFilterChips(
   filters: SalesFilters,
   products: { id: string; title: string }[],
   stores: { value: string; label: string }[] = [],
+  cashiers: { value: string; label: string }[] = [],
+  paymentOptions: { value: string; label: string }[] = [],
 ) {
   const chips: { key: keyof SalesFilters; label: string }[] = [];
   if (filters.dateRange?.from)
@@ -37,7 +40,7 @@ export function salesFilterChips(
   if (filters.store !== "all")
     chips.push({ key: "store", label: stores.find((option) => option.value === filters.store)?.label ?? filters.store });
   if (filters.cashier !== "all")
-    chips.push({ key: "cashier", label: filters.cashier });
+    chips.push({ key: "cashier", label: cashiers.find((option) => option.value === filters.cashier)?.label ?? filters.cashier });
   if (filters.product !== "all")
     chips.push({
       key: "product",

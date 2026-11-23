@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Camera, ImagePlus } from "lucide-react";
+import { cn } from "cn";
 import { ImagePreview } from "@/components/image-input";
 import { Button } from "@/components/ui/button";
 import { DrawerClose, DrawerFooter } from "@/components/ui/drawer";
@@ -55,7 +56,7 @@ export function PaymentProof({
   const disabled = busy || reading;
   return (
     <>
-      <div className="min-h-0 space-y-4 overflow-y-auto px-4 pb-4">
+      <div className={cn("min-h-0 space-y-4 overflow-y-auto px-4 pb-4", required && "payment-step-body")}>
         <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"

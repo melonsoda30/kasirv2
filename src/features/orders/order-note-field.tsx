@@ -47,7 +47,7 @@ export function OrderNoteField({
               variant="outline"
               disabled={disabled}
               aria-label="Edit catatan pesanan"
-              className="h-auto min-h-9 w-full items-start justify-between px-3 py-2 text-left font-normal"
+              className="w-full items-start justify-between px-3 text-left font-normal"
             >
               <span className="min-w-0 whitespace-pre-wrap break-words">
                 {note}

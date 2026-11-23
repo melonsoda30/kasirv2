@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth/auth-store";
-import { API_BASE_URL, request } from "@/lib/api";
+import { API_BASE_URL, isEmptyListResponse, request } from "@/lib/api";
 
 type SettingItem = { code: string; title: string; is_active: boolean };
 
@@ -16,23 +16,25 @@ export type StoreSettings = {
 
 export const settingsUrl = "/admin/setting.php";
 
-export async function fetchStoreSettings(signal?: AbortSignal): Promise<StoreSettings> {
+export async function fetchStoreSettings(signal?: AbortSignal): Promise<StoreSettings | null> {
   const response = await request<{ status: string; msg?: string; data?: StoreSettings } | null>({
     url: settingsUrl,
     method: "GET",
     params: { action: "setting" },
     signal,
   });
+  if (isEmptyListResponse(response)) return null;
   if (response?.status !== "success" || !response.data) {
     throw new Error(response?.msg || "Gagal memuat pengaturan.");
   }
   const data = response.data;
+  const shift = data.shift ?? [];
   const payment = data.payment ?? [];
   const fee = data.fee ?? [];
-  if (!Array.isArray(payment) || !Array.isArray(fee)) {
-    throw new Error("Format metode pembayaran dan biaya dari server tidak valid.");
+  if (Array.isArray(data) || !Array.isArray(shift) || !Array.isArray(payment) || !Array.isArray(fee)) {
+    throw new Error("Format pengaturan toko dari server tidak valid.");
   }
-  return { ...data, payment, fee };
+  return { ...data, shift, payment, fee };
 }
 
 export function useStoreSettings() {

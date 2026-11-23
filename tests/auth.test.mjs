@@ -162,6 +162,12 @@ test('all current pages redirect unauthenticated visitors, while login stays pub
   useAuthStore.getState().clearSession()
 })
 
+const adminBranches = {
+  all_branches: true, branch_id: 'all', branches: [
+    { id: 'BC-001', name: 'Cabang 1' }, { id: 'BC-002', name: 'Cabang 2' },
+  ],
+}
+
 test('the root guard grants administrators full access and restricts cashiers to their operational routes', async () => {
   const { Route } = await import('../src/routes/__root.tsx')
   const session = {
@@ -191,7 +197,9 @@ test('the root guard grants administrators full access and restricts cashiers to
       assert.throws(() => open(route), (error) => error.options.to === '/' && error.options.replace)
     }
 
-    useAuthStore.getState().setSession({ ...session, account: { ...session.account, event_level: 'administrator' } }, false)
+    useAuthStore.getState().setSession({ ...session, account: { ...session.account, event_level: 'administrator', store: adminBranches } }, false)
+    for (const route of [...operational, ...administrative]) assert.doesNotThrow(() => open(route))
+    assert.equal(useAuthStore.getState().setCashierBranch('BC-001'), true)
     for (const route of [...operational, ...administrative]) assert.doesNotThrow(() => open(route))
 
     useAuthStore.getState().setSession({ ...session, account: { ...session.account, event_level: 'unknown' } }, false)
@@ -211,10 +219,58 @@ test('the legacy order route points cashiers to their home and stays available t
   try {
     useAuthStore.getState().setSession(session, false)
     assert.throws(() => Route.options.beforeLoad(), (error) => error.options.to === '/' && error.options.replace)
-    useAuthStore.getState().setSession({ ...session, account: { ...session.account, event_level: 'administrator' } }, false)
+    assert.throws(() => Route.options.beforeLoad({ search: { edit: 'TRX-1', session: 'SES-1' } }),
+      (error) => error.options.search.edit === 'TRX-1' && error.options.search.session === 'SES-1')
+    useAuthStore.getState().setSession({ ...session, account: { ...session.account, event_level: 'administrator', store: adminBranches } }, false)
+    assert.doesNotThrow(() => Route.options.beforeLoad())
+    assert.equal(useAuthStore.getState().setCashierBranch('BC-001'), true)
+    assert.throws(() => Route.options.beforeLoad(), (error) => error.options.to === '/' && error.options.replace)
+    useAuthStore.getState().setCashierBranch()
     assert.doesNotThrow(() => Route.options.beforeLoad())
   } finally {
     useAuthStore.getState().clearSession()
+  }
+})
+
+test('admin cashier mode requires an assigned branch and keeps the account on token replacement', async () => {
+  const { orderOwner, useOrderStore } = await import('../src/features/orders/order-store.ts')
+  const { cashSessionAllowsSales } = await import('../src/features/cash-session/cash-session-query.ts')
+  const { setSession, setCashierBranch, replaceSessionTokens, clearSession } = useAuthStore.getState()
+  const account = { account_id: '1', account_username: 'admin', account_role: 'admin', event_level: 'administrator', store: adminBranches }
+  const session = { account, token: 'original-token', expiresAt: Date.now() + 60_000 }
+  try {
+    setSession(session, true)
+    assert.equal(setCashierBranch('all'), false)
+    assert.equal(setCashierBranch('OTHER'), false)
+    assert.equal(setCashierBranch('BC-001'), true)
+    assert.deepEqual(getAuthSession(), { ...session, cashierBranchId: 'BC-001' })
+    assert.equal(JSON.parse(localStorage.getItem('kasirv2.auth')).cashierBranchId, 'BC-001')
+
+    assert.equal(replaceSessionTokens(session.token, { token: 'new-token', expiresAt: session.expiresAt }), true)
+    assert.equal(getAuthSession().cashierBranchId, 'BC-001')
+    assert.deepEqual(getAuthSession().account, account)
+
+    const { initialize, createOrder } = useOrderStore.getState()
+    initialize(orderOwner(getAuthSession()))
+    const draftId = createOrder()
+    setCashierBranch('BC-002')
+    initialize(orderOwner(getAuthSession()))
+    assert.equal(useOrderStore.getState().orders.length, 0)
+    setCashierBranch('BC-001')
+    initialize(orderOwner(getAuthSession()))
+    assert.equal(useOrderStore.getState().activeId, draftId)
+
+    const shift = { use_session: true, session: { status: 'open', branch_id: 'BC-001' } }
+    assert.equal(cashSessionAllowsSales(shift, 'BC-001'), true)
+    assert.equal(cashSessionAllowsSales(shift, 'BC-002'), false)
+    assert.equal(cashSessionAllowsSales({ use_session: false }, 'BC-002'), true)
+
+    clearSession()
+    assert.equal(localStorage.getItem('kasirv2.auth'), null)
+    setSession(session, false)
+    assert.equal(getAuthSession().cashierBranchId, undefined)
+  } finally {
+    clearSession()
   }
 })
 
@@ -368,6 +424,8 @@ test('dashboard requests all five GET actions in the current session scope witho
     responses.session_summary = { mode: 'none', use_session: false, sessions: [] }
     assert.equal((await fetchDashboard('session_summary', signal)).use_session, false)
     responses.profit_statistic = []
+    assert.equal(await fetchDashboard('profit_statistic', signal), null)
+    responses.profit_statistic = { labels: [] }
     await assert.rejects(fetchDashboard('profit_statistic', signal), /Format data dashboard/)
   } finally {
     useAuthStore.getState().clearSession()
@@ -500,7 +558,7 @@ test('Order category tabs follow the saved order and include categories added to
 
 test('POS payment methods preserve custom codes and handle inactive and missing fees', async () => {
   const { fetchPaymentMethods } = await import('../src/features/orders/payment-methods.ts')
-  const { savePayment } = await import('../src/features/orders/payment-details.ts')
+  const { paymentTotals, savePayment } = await import('../src/features/orders/payment-details.ts')
   const edc = {
     payment_code: 'qris_edc', payment_method: 'EDC QRIS', payment_type: 'edc',
     fee_code: 'qris_edc', fee: 0.7, fee_type: 'percent', image: '',
@@ -538,6 +596,15 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     assert.equal(cash.missingFee, false)
     assert.equal(qris.kind, 'qris')
     assert.equal(qris.image, 'https://kasirv2.dhcsupplement.co.id/data-assets/qris.png')
+    const historicalMethods = await fetchPaymentMethods(signal, 'all')
+    assert.deepEqual(historicalMethods.map(({ code }) => code), [
+      'qris_edc', 'debit_off_us', 'credit_on_us', 'disabled', 'cash', 'qris_cabang',
+    ])
+    const { defaultSalesFilters, salesFilterChips } = await import('../src/features/sales/sales-filters.ts')
+    const options = historicalMethods.map(({ code, title }) => ({ value: code, label: title }))
+    assert.deepEqual(salesFilterChips({ ...defaultSalesFilters, paymentMethod: 'qris_edc' }, [], [], [], options), [
+      { key: 'paymentMethod', label: edc.payment_method },
+    ])
 
     let sent
     api.defaults.adapter = async (config) => {
@@ -549,11 +616,11 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
         product: { id: 'SKU-1', title: 'Air Mineral', price: 3500, branchId: 'branch-1', discountType: 'Persentase (%)', discount: 10 },
         unitPrice: 3150, quantity: 2,
       }] },
-      subtotal: 6300, methodFeeAmount: 44, discountAmount: 322, total: 6122, paid: 6122, change: 0,
-      fee: { name: 'Kemasan', amount: 100 }, discount: { name: 'Promo', type: 'percent', value: 5 }, method: card,
+      subtotal: 6300, methodFeeAmount: 44, discountAmount: 322, discountAmounts: [322], total: 6122, paid: 6122, change: 0,
+      additionalPrices: [{ title: 'Kemasan', value: 100 }], discounts: [{ title: 'Promo', type: 'percent', value: 5 }], method: card,
     }
     await savePayment(receipt, cashier)
-    assert.equal(sent.url, '/transaksi/trx')
+    assert.equal(sent.url, '/transaction/trx')
     assert.equal(sent.method, 'post')
     assert.equal(sent.data.get('action'), 'add_trx')
     assert.equal(sent.data.get('payment_methods'), 'qris_edc')
@@ -576,24 +643,73 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     assert.equal(sent.data.has('payment_upload_file'), false)
     assert.equal(sent.data.has('payment_cash_nominal'), false)
 
+    const additionalPrices = [...receipt.additionalPrices, { title: 'Layanan', value: 200 }]
+    const discounts = [...receipt.discounts, { title: 'Voucher', type: 'fixed', value: 250 }]
+    const totals = paymentTotals(receipt.order, additionalPrices, discounts, card.fee)
+    assert.equal(totals.total, 6062)
+    assert.deepEqual(totals.discountAmounts, [332, 250])
+    await savePayment({ ...receipt, ...totals, additionalPrices, discounts }, cashier)
+    assert.equal(sent.data.get('payment_total_price'), '6062')
+    assert.equal(sent.data.get('payment_additional_price[1][title]'), 'Layanan')
+    assert.equal(sent.data.get('payment_additional_price[1][value]'), '200')
+    assert.equal(sent.data.get('discounts[1][title]'), 'Voucher')
+    assert.equal(sent.data.get('discounts[1][type]'), 'fixed')
+    assert.equal(sent.data.get('discounts[1][value]'), '250')
+    const capped = paymentTotals(receipt.order, [], [discounts[0], { ...discounts[1], value: 9000 }])
+    assert.equal(capped.total, 0)
+    assert.deepEqual(capped.discountAmounts, [315, 5985])
+
     await savePayment({ ...receipt, method: qris, methodFeeAmount: 0, proof: new File(['proof'], 'qris.png', { type: 'image/png' }) }, cashier)
     assert.equal(sent.data.get('payment_methods'), 'qris_cabang')
     assert.equal(sent.data.get('payment_upload_file').name, 'qris.png')
 
-    await savePayment({ ...receipt, method: cash, methodFeeAmount: 0, paid: 8000, change: 1878 }, {
+    const admin = {
       ...cashier, account_role: 'admin', store: { all_branches: true, branches: [{ id: 'branch-1', name: 'Cabang 1' }] },
-    })
+    }
+    await savePayment({ ...receipt, method: cash, methodFeeAmount: 0, paid: 8000, change: 1878 }, admin, 'add_trx', 'branch-1')
     assert.equal(sent.data.get('payment_methods'), 'cash')
     assert.equal(sent.data.get('payment_cash_nominal'), '8000')
     assert.equal(sent.data.get('payment_cash_change'), '1878')
     assert.equal(sent.data.get('branch_id'), 'branch-1')
+    await assert.rejects(savePayment(receipt, admin, 'add_trx', 'branch-2'), /Produk harus berasal dari cabang kasir/)
+
+    const fullReceipt = {
+      ...receipt, ppn: 11, sales: 'sales-1', proof: new File(['proof'], 'bukti.png', { type: 'image/png' }),
+      order: { ...receipt.order, items: [{ ...receipt.order.items[0], product: {
+        ...receipt.order.items[0].product, category: 'minuman', photo: 'air.png', description: 'Air botol',
+      } }] },
+    }
+    await savePayment(fullReceipt, admin, 'add_trx', 'branch-1')
+    const completed = Object.fromEntries(sent.data)
+    assert.equal(completed.payment_ppn, '11')
+    assert.equal(completed.sales, 'sales-1')
+    assert.equal(completed['product[0][product_category]'], 'minuman')
+    assert.equal(completed['product[0][product_img]'], 'air.png')
+    assert.equal(completed['product[0][product_description]'], 'Air botol')
+    await savePayment(fullReceipt, admin, 'pending_trx', 'branch-1')
+    assert.deepEqual(Object.fromEntries(sent.data), {
+      ...completed, action: 'pending_trx', payment_cash_nominal: '0', payment_cash_change: '0',
+    })
     await savePayment({ ...receipt, method: cash, methodFeeAmount: 0, paid: 8000, change: 1878 }, cashier, 'pending_trx')
-    assert.equal(sent.data.get('action'), 'pending_trx')
     assert.equal(sent.data.get('payment_methods'), 'cash')
-    assert.equal(sent.data.get('product[0][product_id]'), 'SKU-1')
-    assert.equal(sent.data.get('note'), 'Tanpa es')
-    assert.equal(sent.data.has('payment_cash_nominal'), false)
-    assert.equal(sent.data.has('payment_cash_change'), false)
+    assert.equal(sent.data.get('payment_cash_nominal'), '0')
+    assert.equal(sent.data.get('payment_cash_change'), '0')
+    assert.equal(sent.data.has('branch_id'), false)
+
+    const pendingRequest = sent
+    const foreignOrder = { ...receipt.order, items: [{ ...receipt.order.items[0], product: {
+      ...receipt.order.items[0].product, branchId: 'branch-2',
+    } }] }
+    await assert.rejects(savePayment({ ...receipt, order: foreignOrder }, admin, 'pending_trx'), /Branch tidak terdaftar di store ini/)
+    await assert.rejects(savePayment({ ...receipt, order: foreignOrder }, {
+      ...cashier, store: { branch_id: 'branch-1' },
+    }), /Produk harus berasal dari cabang kasir/)
+    await assert.rejects(savePayment({ ...receipt, order: { ...receipt.order, items: [] } }, cashier), /Tambahkan produk/)
+    await assert.rejects(savePayment({ ...receipt, method: { ...cash, code: '' } }, cashier), /Pilih metode pembayaran/)
+    await assert.rejects(savePayment({ ...receipt, total: NaN }, cashier), /Total pembayaran tidak valid/)
+    await assert.rejects(savePayment({ ...receipt, order: { ...receipt.order, items: [{ ...receipt.order.items[0], quantity: 0 }] } }, cashier), /Data produk/)
+    await assert.rejects(savePayment({ ...receipt, proof: new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'bukti.png') }, cashier, 'pending_trx'), /maksimal 5 MB/)
+    assert.equal(sent, pendingRequest)
   } finally {
     useAuthStore.getState().clearSession()
   }
@@ -786,38 +902,34 @@ test('product prices support nominal and percentage discounts without negative p
   assert.equal(getProductPricing({ price: 100000, discount: 150, discountType: 'Persentase (%)' }).finalPrice, 0)
 })
 
-test('transaction queries preserve branch IDs, payment codes and local calendar dates', async () => {
+test('transaction queries send supported filters, user IDs, exact payment codes and local calendar dates', async () => {
   const { transactionListParams, fetchTransactions } = await import('../src/features/sales/sales-api.ts')
-  const filters = { store: 'branch-0328', paymentMethod: 'cash', cashier: 'all', product: 'ignored',
+  const filters = { store: 'branch-0328', paymentMethod: 'qris_edc', cashier: 'U-0011', sales: 'U-0012', product: 'ignored',
     dateRange: { from: new Date(2026, 10, 1), to: new Date(2026, 10, 17) } }
-  assert.deepEqual(transactionListParams(filters, ' test '), {
-    action: 'list_trx', kasir: 'all', sales: 'all', search: 'test', shift: 'all', payment: 'cash',
-    branch_id: 'branch-0328', startDate: '2026-11-01', endDate: '2026-11-17', sku: 'all',
+  const params = transactionListParams(filters, ' test ')
+  assert.deepEqual(params, {
+    action: 'list_trx', kasir: 'U-0011', sales: 'U-0012', search: 'test', payment: 'qris_edc',
+    startDate: '2026-11-01', endDate: '2026-11-17',
   })
-  const empty = transactionListParams({ ...filters, store: 'all', paymentMethod: 'all', dateRange: undefined }, '')
-  assert.equal(empty.startDate, '')
-  assert.equal(empty.endDate, '')
-  assert.equal(empty.branch_id, 'all')
-  assert.equal(empty.payment, 'all')
-  assert.equal(transactionListParams({ ...filters, paymentMethod: 'qris' }, '').payment, 'qris')
+  assert.deepEqual(transactionListParams({ paymentMethod: 'all', cashier: 'all', sales: 'all', status: 'all' }, ' '), { action: 'list_trx' })
+  assert.deepEqual(transactionListParams({ dateRange: { from: undefined, to: new Date(2026, 10, 17) } }, ''), {
+    action: 'list_trx', endDate: '2026-11-17',
+  })
+  for (const status of ['pending', 'completed', 'cancelled']) {
+    assert.deepEqual(transactionListParams({ status }, ''), { action: 'list_trx', status })
+  }
   let sent
   api.defaults.adapter = async (config) => { sent = config; return { config, status: 200, headers: {}, data: {
     status: 'success', msg: 'Successfully Get Transaction',
     data: { summary: { transaction: [], summary: [], payments: [], 'sales-promotion': [] }, data_trx: [] },
   } } }
   useAuthStore.getState().setSession({ account: { account_username: 'tester' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
-  assert.deepEqual((await fetchTransactions(filters, '')).sales, [])
-  assert.equal(sent.url, '/transaksi/trx')
+  assert.deepEqual((await fetchTransactions(filters, 'test')).sales, [])
+  assert.equal(sent.url, '/transaction/trx')
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-token-only')
-  assert.equal(sent.params.sku, 'all')
-  await fetchTransactions({ ...filters, cashier: 'U-0011' }, 'test')
-  assert.equal(sent.params.kasir, 'U-0011')
-  assert.equal(sent.params.branch_id, 'branch-0328')
-  assert.equal(sent.params.payment, 'cash')
-  assert.equal(sent.params.search, 'test')
-  await fetchTransactions({ ...filters, status: 'pending' }, '')
-  assert.equal(sent.params.status, 'pending')
-  assert.equal(sent.params.branch_id, 'branch-0328')
+  assert.deepEqual(sent.params, params)
+  await fetchTransactions({ status: 'pending' }, '')
+  assert.deepEqual(sent.params, { action: 'list_trx', status: 'pending' })
   useAuthStore.getState().clearSession()
 })
 
@@ -844,7 +956,51 @@ test('transaction mapping uses server aggregates, Jakarta dates, payment names a
   assert.equal(mapped.sales[0].totalItems, 2)
   assert.deepEqual(mapped.sales[0].items, [])
   assert.equal(mapped.sales[0].paymentProof, undefined)
-  assert.throws(() => mapTransactionList([]), /Format daftar transaksi/)
+  assert.deepEqual(mapTransactionList([]), {
+    sales: [], summary: { transactions: 0, productsSold: 0, total: 0, change: 0, paymentTotals: {} },
+  })
+})
+
+test('empty list responses render as no data while real API errors are preserved', async () => {
+  const { fetchProducts, fetchOrderProducts } = await import('../src/features/products/product-api.ts')
+  const { fetchCategories } = await import('../src/features/products/category-api.ts')
+  const { fetchProductStock } = await import('../src/features/products/stock-api.ts')
+  const { fetchStore } = await import('../src/features/products/store-api.ts')
+  const { fetchUsers } = await import('../src/features/users/users-api.ts')
+  const { fetchPaymentMethods } = await import('../src/features/orders/payment-methods.ts')
+  const { fetchCashSessionExport, fetchCashSessions, fetchHandoverCandidates, fetchPendingHandovers } = await import('../src/features/cash-session/cash-session-api.ts')
+  const { fetchDashboard } = await import('../src/features/dashboard/dashboard-api.ts')
+  const { fetchStoreSettings } = await import('../src/features/settings/store-settings-query.ts')
+  const { fetchTransactions } = await import('../src/features/sales/sales-api.ts')
+  const signal = new AbortController().signal
+  const listRequests = [fetchProducts, fetchOrderProducts, fetchCategories, fetchProductStock,
+    fetchStore, fetchUsers, fetchPaymentMethods, fetchHandoverCandidates, fetchPendingHandovers]
+  const emptyTransactions = { sales: [], summary: { transactions: 0, productsSold: 0, total: 0, change: 0, paymentTotals: {} } }
+  let payload
+  api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: payload })
+
+  for (const empty of [[], { status: 'success', data: [] }, { status: 'error', msg: 'No Data yet', data: [] }]) {
+    payload = empty
+    for (const fetchList of listRequests) assert.deepEqual(await fetchList(signal), [])
+    assert.deepEqual(await fetchCashSessionExport({}), [])
+    assert.deepEqual(await fetchCashSessions({}), { sessions: [], count: 0 })
+    assert.deepEqual(await fetchDashboard('best_sales'), [])
+    assert.equal(await fetchDashboard('trending_product'), null)
+    assert.equal(await fetchStoreSettings(), null)
+    assert.deepEqual(await fetchTransactions({}, ''), emptyTransactions)
+  }
+
+  payload = { status: 'success', msg: 'No Data yet', data: { summary: [], data_trx: [] } }
+  assert.deepEqual(await fetchTransactions({}, ''), emptyTransactions)
+  payload = { status: 'success', data: { sessions: [] } }
+  assert.deepEqual(await fetchCashSessions({}), { sessions: [], count: 0 })
+
+  payload = { status: 'error', msg: 'Akses ditolak', data: [] }
+  for (const fetchList of listRequests) await assert.rejects(fetchList(signal), /Akses ditolak/)
+  await assert.rejects(fetchTransactions({}, ''), /Akses ditolak/)
+  await assert.rejects(fetchCashSessions({}), /Akses ditolak/)
+  await assert.rejects(fetchDashboard('trending_product'), /Akses ditolak/)
+  await assert.rejects(fetchStoreSettings(), /Akses ditolak/)
 })
 
 test('transaction lists unwrap server aggregates and sales assignments from the success response', async () => {
@@ -862,6 +1018,15 @@ test('transaction lists unwrap server aggregates and sales assignments from the 
         trx_id: 'TRX000006', trx_kasir: 'Kasir Kemang Loka 2', trx_sales: { id: '1', name: 'Owner Bazar Kemang1' },
         trx_location: 'Bazar Kemang 2026', trx_date: '19/11/2026 12:30', trx_total: '11655',
         trx_payment: 'qris', trx_change: '0', trx_total_items: 3, trx_status: 'completed',
+      }, {
+        trx_id: 'TRXSBNRSS', trx_kasir: 'kasir', trx_location: 'Bazar Kemang 2026', trx_date: '23/11/2026 11:41',
+        trx_payment: 'CASH', trx_total: '77000', trx_change: '0', trx_total_items: 2, trx_status: 'pending',
+        trx_items: [
+          { product_id: 'PE00002', name: 'Kopi Arabika Gayo 200g ', category: 'satuan', img: '',
+            price: '65000', description: 'Kopi arabika', discount_type: 'none', discount: '0', qty: 1, price_total: '65000' },
+          { product_id: 'PE00003', name: 'Teh Hijau Melati 250ml', category: 'satuan', img: '',
+            price: '15000', discount_type: 'fixed', discount: '3000', qty: 1, price_total: '12000' },
+        ],
       }],
     },
   })
@@ -874,6 +1039,17 @@ test('transaction lists unwrap server aggregates and sales assignments from the 
   assert.equal(mapped.sales[0].occurredAt, '2026-11-19T12:30:00+07:00')
   assert.equal(mapped.sales[0].total, 11655)
   assert.equal(mapped.sales[0].status, 'complete')
+  const [, pending] = mapped.sales
+  assert.equal(pending.status, 'pending')
+  assert.equal(pending.paymentMethod, 'Tunai')
+  assert.deepEqual(pending.items[0], {
+    productId: 'PE00002', title: 'Kopi Arabika Gayo 200g', category: 'satuan', image: '', quantity: 1,
+    unitPrice: 65000, lineTotal: 65000, description: 'Kopi arabika', discountType: 'none', discount: 0,
+  })
+  const { orderTotal, pendingOrderDraft } = await import('../src/features/orders/order-store.ts')
+  const order = pendingOrderDraft(pending)
+  assert.equal(orderTotal(order), 77000)
+  assert.equal(order.items[1].product.discountType, 'Nominal')
   assert.throws(() => mapTransactionList({ status: 'success' }), /Format daftar transaksi/)
   assert.throws(() => mapTransactionList({ status: 'error', msg: 'Transaksi tidak tersedia' }), /Transaksi tidak tersedia/)
 })
@@ -895,13 +1071,14 @@ test('transaction details fetch selected IDs and use historical images, line tot
   } } }
   useAuthStore.getState().setSession({ account: { account_username: 'tester' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
   const detail = await fetchTransactionDetail('TRXWHSMEY')
-  assert.equal(sent.url, '/transaksi/trx')
+  assert.equal(sent.url, '/transaction/trx')
   assert.deepEqual(sent.params, { action: 'detail_trx', trx_id: 'TRXWHSMEY' })
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-token-only')
   assert.equal(detail.status, 'complete')
   assert.equal(detail.total, 31500)
   assert.deepEqual(detail.salesperson, { id: '1', name: 'Owner Bazar Kemang1' })
   assert.equal(detail.note, 'Tanpa es')
+  assert.equal(detail.items[0].productId, 'PE00001')
   assert.equal(detail.items[0].title, 'DHC Vitamin C')
   assert.equal(detail.items[0].quantity, 1)
   assert.equal(detail.items[0].unitPrice, 35000)
@@ -963,22 +1140,190 @@ test('cash sessions follow server mode and submit opening, handover and closing 
   assert.equal(new URLSearchParams(sent.data).get('closing_cash'), '')
 })
 
-test('settling or cancelling a pending transaction uses its existing transaction ID', async () => {
-  const { resolvePendingTransaction } = await import('../src/features/orders/payment-details.ts')
+test('settling a pending transaction posts pay_trx for the existing ID without resending products', async () => {
+  const { pendingPaymentDetails, resolvePendingTransaction } = await import('../src/features/orders/payment-details.ts')
+  const { fetchPaymentMethods, findRecordedPaymentMethod } = await import('../src/features/orders/payment-methods.ts')
   let sent
   api.defaults.adapter = async (config) => {
     sent = config
+    if (config.method === 'get') {
+      assert.equal(config.url, '/transaction/trx')
+      assert.deepEqual(config.params, { action: 'list_payment' })
+      return { config, headers: {}, status: 200, data: { status: 'success', data: [
+        { payment_code: 'cash', payment_method: 'Tunai', payment_type: 'cash', is_active: true, fee_active: false, fee_found: false },
+        { payment_code: 'qris_cabang', payment_method: 'QRIS Cabang', payment_type: 'qris', is_active: true,
+          fee_code: 'qris', fee: 0.7, fee_type: 'percent', fee_active: true, fee_found: true },
+      ] } }
+    }
+    return { config, headers: {}, status: 200, data: {
+      status: 'success', msg: 'Pembayaran berhasil, transaksi selesai', trx_id: 'TRX-1', trx_status: 'completed',
+    } }
+  }
+  await resolvePendingTransaction('TRX-1', { methodCode: 'cash', paid: 20000, change: 5000 })
+  assert.equal(sent.url, '/transaction/trx')
+  assert.equal(sent.method, 'post')
+  assert.equal(sent.params, undefined)
+  assert.deepEqual(Object.fromEntries(sent.data), {
+    action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'cash', payment_cash_nominal: '20000', payment_cash_change: '5000',
+  })
+
+  await resolvePendingTransaction('TRX-1', {})
+  assert.deepEqual(Object.fromEntries(sent.data), { action: 'pay_trx', trx_id: 'TRX-1' })
+
+  await resolvePendingTransaction('TRX-1', {
+    methodCode: 'qris_edc', paymentFee: 0, ppn: 11, subtotal: 15000, total: 16500,
+    additionalPrices: [{ name: 'Kemasan', amount: 500 }],
+    discounts: [{ title: 'Promo', type: 'fixed', value: 650 }],
+  })
+  assert.deepEqual(Object.fromEntries(sent.data), {
+    action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'qris_edc', payment_fee: '0',
+    payment_ppn: '11', payment_subtotal: '15000', payment_total_price: '16500',
+    'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '500',
+    'discounts[0][title]': 'Promo', 'discounts[0][type]': 'fixed', 'discounts[0][value]': '650',
+  })
+
+  const methods = await fetchPaymentMethods()
+  const recorded = findRecordedPaymentMethod(methods, 'TUNAI')
+  const qris = methods.find(({ kind }) => kind === 'qris')
+  const sale = { subtotal: 15000, total: 15500, paymentFee: 0, additionalPrices: [{ title: 'Kemasan', value: 500 }] }
+  const order = { id: 'TRX-1', items: [] }
+  assert.deepEqual(pendingPaymentDetails(order, sale, recorded, recorded).updates, {})
+  const changed = pendingPaymentDetails(order, sale, qris, recorded)
+  assert.equal(changed.totals.total, 15605)
+  await resolvePendingTransaction(order.id, { ...changed.updates, methodCode: qris.code })
+  assert.deepEqual(Object.fromEntries(sent.data), {
+    action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'qris_cabang', payment_fee: '0.7', payment_total_price: '15605',
+  })
+
+  const withFixedFee = { ...sale, additionalPrices: [...sale.additionalPrices, { title: 'Biaya pembayaran', value: 1000 }] }
+  const fixedMethod = { ...recorded, fee: { type: 'fixed', amount: 1000 } }
+  assert.deepEqual(pendingPaymentDetails(order, withFixedFee, qris, fixedMethod).updates.additionalPrices, [
+    { name: 'Kemasan', amount: 500 },
+  ])
+  const adjustments = pendingPaymentDetails(order, sale, recorded, recorded, {
+    additionalPrices: [{ title: 'Kemasan', value: 100 }, { title: 'Layanan', value: 200 }],
+    discounts: [{ title: 'Promo', type: 'percent', value: 5 }, { title: 'Voucher', type: 'fixed', value: 200 }],
+  })
+  await resolvePendingTransaction(order.id, { ...adjustments.updates, methodCode: recorded.code, paid: 15000, change: 665 })
+  assert.equal(sent.data.get('payment_total_price'), '14335')
+  assert.equal(sent.data.get('payment_additional_price[1][value]'), '200')
+  assert.equal(sent.data.get('discounts[1][value]'), '200')
+
+  await resolvePendingTransaction('TRX-2')
+  assert.equal(sent.params, undefined)
+  assert.deepEqual(Object.fromEntries(sent.data), { action: 'cancel_trx', trx_id: 'TRX-2' })
+
+  await assert.rejects(resolvePendingTransaction(' ', {}), /ID transaksi wajib diisi/)
+  api.defaults.adapter = async (config) => {
+    throw new AxiosError('Conflict', 'ERR_BAD_REQUEST', config, undefined, {
+      config, headers: {}, status: 409, data: { status: 'error', msg: 'Status transaksi: completed' },
+    })
+  }
+  await assert.rejects(resolvePendingTransaction('TRX-1', {}), /Status transaksi: completed/)
+})
+
+test('sales can edit payment adjustments and cash without transmitting products', async () => {
+  const { editSalePayment } = await import('../src/features/orders/payment-details.ts')
+  const sale = {
+    id: 'TRX-1', status: 'complete', subtotal: 15000, total: 14500, paid: 20000, paymentFee: 0,
+    salesId: 'U-0012', items: [{ productId: 'P1', quantity: 1, lineTotal: 15000 }],
+    additionalPrices: [{ title: 'Kemasan', value: 500 }], discounts: [{ title: 'Promo', value: 1000, type: 'fixed' }],
+  }
+  const cash = { code: 'cash', title: 'Tunai', kind: 'cash' }
+  const changes = { method: cash, recordedMethod: cash, paid: 20000, additionalPrices: [], discounts: [] }
+  const requests = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config)
     return { config, headers: {}, status: 200, data: { status: 'success' } }
   }
-  await resolvePendingTransaction('TRX-1', { method: { kind: 'cash' }, paid: 20000, change: 5000 })
-  assert.equal(sent.url, '/transaction/trx.php')
-  assert.deepEqual(sent.params, { action: 'pay_trx' })
-  assert.deepEqual(Object.fromEntries(sent.data), {
-    trx_id: 'TRX-1', payment_cash_nominal: '20000', payment_cash_change: '5000',
+  await editSalePayment(sale, changes)
+  assert.equal(requests[0].method, 'post')
+  assert.equal(requests[0].url, '/transaction/trx')
+  assert.deepEqual(Object.fromEntries(requests[0].data), {
+    action: 'edit_trx', trx_id: 'TRX-1', payment_methods: 'cash', payment_total_price: '15000',
+    payment_cash_nominal: '20000', payment_cash_change: '5000',
+    'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '0',
+    'discounts[0][title]': 'Promo', 'discounts[0][value]': '0', 'discounts[0][type]': 'fixed',
   })
-  await resolvePendingTransaction('TRX-2')
-  assert.deepEqual(sent.params, { action: 'cancel_trx' })
-  assert.deepEqual(Object.fromEntries(sent.data), { trx_id: 'TRX-2' })
+  await editSalePayment(sale, { method: { code: 'qris_edc', kind: 'noncash', fee: { type: 'percent', amount: 1 } }, recordedMethod: cash })
+  assert.deepEqual(Object.fromEntries(requests[1].data), {
+    action: 'edit_trx', trx_id: 'TRX-1', payment_methods: 'qris_edc', payment_total_price: '14650',
+    payment_fee: '1', payment_cash_nominal: '0', payment_cash_change: '0',
+  })
+  await assert.rejects(editSalePayment(sale, { ...changes, paid: 10000 }), /Nominal tunai/)
+  await assert.rejects(editSalePayment({ ...sale, status: 'delete' }, changes), /tidak dapat diedit/)
+  assert.equal(requests.length, 2)
+})
+
+test('editing pending products recalculates the total and preserves stored payment fields', async () => {
+  const { editPendingOrder } = await import('../src/features/orders/payment-details.ts')
+  const { mapTransactionDetail } = await import('../src/features/sales/sales-api.ts')
+  const { pendingOrderDraft } = await import('../src/features/orders/order-store.ts')
+  const { changePendingQuantity } = await import('../src/features/orders/pending-order-edit.ts')
+  const response = {
+    trx_id: 'TRX-1', trx_kasir: 'Kasir', trx_location: 'Toko', trx_branch: 'BC-001',
+    trx_date: '23/11/2026 11:41', trx_total: '19906', trx_ppn: '11', trx_payment: 'qris_edc', trx_payment_fee: '0.7%',
+    trx_change: '0', trx_nominal: '0', trx_sales: { id: 'U-0012', name: 'Sales' },
+    trx_additional_price: [{ title: 'Kemasan', value: '1200' }, { title: 'Layanan', value: '700' }],
+    trx_discount: [{ title: 'Promo', value: '5', type: 'percent' }, { title: 'Voucher', value: '1000', type: 'fixed' }],
+    trx_total_items: 2, trx_status: 'pending', trx_upload_file: '',
+    trx_products: [{ product_id: 'P1', name: 'Kopi', price: '10000', qty: 2, price_total: '18000',
+      img: '', category: 'minuman', discount_type: 'percent', discount: 10 }],
+  }
+  const transaction = mapTransactionDetail(response)
+  const original = pendingOrderDraft(transaction)
+  const existing = { ...original.items[0].product, price: 12000, stock: 1 }
+  const product = { ...existing, id: 'P2', title: 'Teh', price: 6000, discountType: 'Tanpa diskon' }
+  assert.equal(changePendingQuantity(original, original, 'P1', 4, existing), original)
+  const adjusted = changePendingQuantity(original, original, 'P1', 3, existing)
+  const order = changePendingQuantity(adjusted, original, 'P2', 1, product)
+  assert.equal(order.items[0].unitPrice, 9000)
+  const requests = []
+  let saved = response
+  api.defaults.adapter = async (config) => {
+    requests.push(config)
+    if (config.method === 'get') return { config, headers: {}, status: 200, data: { status: 'success', data: saved } }
+    const products = [{ ...response.trx_products[0], qty: Number(config.data.get('product[0][product_qty]')),
+      price_total: config.data.get('product[0][product_price_total]') }]
+    if (config.data.has('product[1][product_id]')) {
+      products.push({ product_id: 'P2', name: 'Teh', price: '6000', qty: 1, price_total: '6000', img: '' })
+    }
+    saved = { ...response, trx_total: config.data.get('payment_total_price'), trx_products: products }
+    return { config, headers: {}, status: 200, data: { status: 'success' } }
+  }
+  await editPendingOrder(order, transaction)
+  assert.deepEqual(requests.map(({ method }) => method), ['post', 'get'])
+  assert.equal(requests[0].url, '/transaction/trx')
+  assert.equal(requests[0].params, undefined)
+  assert.deepEqual(requests[1].params, { action: 'detail_trx', trx_id: 'TRX-1' })
+  assert.deepEqual(Object.fromEntries(requests[0].data), {
+    action: 'edit_trx', trx_id: 'TRX-1', sales: 'U-0012', payment_total_price: '35823',
+    payment_methods: 'qris_edc', payment_fee: '0.7', payment_cash_nominal: '0', payment_cash_change: '0',
+    'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '1200',
+    'payment_additional_price[1][title]': 'Layanan', 'payment_additional_price[1][value]': '700',
+    'discounts[0][title]': 'Promo', 'discounts[0][value]': '5', 'discounts[0][type]': 'percent',
+    'discounts[1][title]': 'Voucher', 'discounts[1][value]': '1000', 'discounts[1][type]': 'fixed',
+    'product[0][product_id]': 'P1', 'product[0][product_name]': 'Kopi', 'product[0][product_qty]': '3',
+    'product[0][product_price]': '10000', 'product[0][product_price_total]': '27000', 'product[0][product_category]': 'minuman',
+    'product[0][product_discount_type]': 'percent', 'product[0][product_discount]': '10',
+    'product[1][product_id]': 'P2', 'product[1][product_name]': 'Teh', 'product[1][product_qty]': '1',
+    'product[1][product_price]': '6000', 'product[1][product_price_total]': '6000', 'product[1][product_category]': 'minuman',
+    'product[1][product_discount_type]': 'none', 'product[1][product_discount]': '0',
+  })
+  const reduced = changePendingQuantity(original, original, 'P1', 1, existing)
+  await editPendingOrder(reduced, transaction)
+  assert.equal(requests[2].data.get('payment_total_price'), '10355')
+  await assert.rejects(editPendingOrder({ ...order, items: [] }, transaction), /Tambahkan produk/)
+  assert.equal(requests.length, 4)
+
+  api.defaults.adapter = async (config) => {
+    requests.push(config)
+    throw new AxiosError('Conflict', 'ERR_BAD_REQUEST', config, undefined, {
+      config, headers: {}, status: 409, data: { status: 'error', msg: 'Pesanan sudah dibayar' },
+    })
+  }
+  await assert.rejects(editPendingOrder(order, transaction), /Pesanan sudah dibayar/)
+  assert.deepEqual(requests.map(({ method }) => method), ['post', 'get', 'post', 'get', 'post'])
 })
 
 test('profile changes upload binary images and preserve authentication and remember preference', async () => {

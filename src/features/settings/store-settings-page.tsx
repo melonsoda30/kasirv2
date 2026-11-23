@@ -54,7 +54,7 @@ export function StoreSettingsPage({
     scope: { id: JSON.stringify(queryKey) },
     mutationFn: async ({ change, upload }: { change: SettingsUpdate; upload?: QrisUpload }) => {
       await queryClient.cancelQueries({ queryKey, exact: true });
-      const current = queryClient.getQueryData<StoreSettings>(queryKey);
+      const current = queryClient.getQueryData<StoreSettings | null>(queryKey);
       if (!current) throw new Error("Pengaturan toko belum dimuat.");
 
       const patch = change(current);
@@ -80,7 +80,7 @@ export function StoreSettingsPage({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey, exact: true }),
         ...(patch.payment || patch.fee || upload
-          ? [queryClient.invalidateQueries({ queryKey: paymentMethodsKey(current.store_id), exact: true })]
+          ? [queryClient.invalidateQueries({ queryKey: paymentMethodsKey(current.store_id) })]
           : []),
       ]);
     },
@@ -109,6 +109,7 @@ export function StoreSettingsPage({
           </Button>
         </div>
       )}
+      {data === null && <p className="text-sm text-muted-foreground">Belum ada pengaturan untuk toko ini.</p>}
       {data && <>{children(data, (change, upload) => update({ change, upload }))}</>}
     </PageLayout>
   );

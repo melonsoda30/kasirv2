@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Package } from "lucide-react";
 import { cn } from "cn";
 import { formatCurrency } from "@/lib/currency";
@@ -12,11 +12,13 @@ export function OrderItemRow({
   item,
   catalogProduct,
   showDiscount,
+  quantityControl,
 }: {
   orderId?: string;
   item: OrderLine;
   catalogProduct?: Product;
   showDiscount?: boolean;
+  quantityControl?: ReactNode;
 }) {
   const [failedImage, setFailedImage] = useState(false);
   const image =
@@ -69,7 +71,7 @@ export function OrderItemRow({
           <>
             <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
               <p className="text-xs text-muted-foreground tabular-nums">
-                {!orderId && <>{item.quantity} × </>}
+                {!orderId && !quantityControl && <>{item.quantity} × </>}
                 {formatCurrency(item.unitPrice)}
               </p>
               {orderId && (
@@ -79,6 +81,7 @@ export function OrderItemRow({
                   catalogProduct={catalogProduct}
                 />
               )}
+              {quantityControl}
             </div>
             <p className="mt-0.5 text-sm leading-tight font-bold text-foreground tabular-nums">
               {formatCurrency(item.unitPrice * item.quantity)}

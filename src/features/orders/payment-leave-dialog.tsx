@@ -17,13 +17,14 @@ const shouldBlockPaymentNavigation: ShouldBlockFn = ({ current, next }) =>
   (next.routeId !== "/payment/$orderId" ||
     next.params.orderId !== current.params.orderId);
 
-export function PaymentLeaveDialog({ busy }: { busy: boolean }) {
+export function PaymentLeaveDialog({ busy, pending }: { busy: boolean; pending: boolean }) {
   const blocker = useBlocker({
     shouldBlockFn: shouldBlockPaymentNavigation,
     withResolver: true,
     enableBeforeUnload: true,
   });
   const reset = blocker.reset;
+  const destination = pending ? "Antrean" : "Order";
 
   useEffect(() => {
     // Cancel a pending navigation if checkout is removed, for example after payment succeeds.
@@ -47,7 +48,7 @@ export function PaymentLeaveDialog({ busy }: { busy: boolean }) {
           <DialogDescription>
             {busy
               ? "Tunggu sampai status pembayaran tersedia."
-              : "Pesanan tetap ada di Antrean dan bisa dibayar nanti."}
+              : `Pesanan tetap ada di ${destination} dan bisa dibayar nanti.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-row">

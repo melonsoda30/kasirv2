@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
@@ -30,16 +30,18 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { useAuthStore, type Account } from "@/features/auth/auth-store";
+import { getCashierBranch, useAuthStore, usesCashierMode, type Account } from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import { cashSessionAllowsSales, cashSessionOptions, refreshCashSessionData, useCashSession } from "@/features/cash-session/cash-session-query";
 import { fetchTransactionDetail } from "@/features/sales/sales-api";
-import type { Sale } from "@/features/sales/sales-summary";
+import type { Sale, SaleDiscount, SaleFee } from "@/features/sales/sales-summary";
 import { OrderItemRow } from "./order-item-row";
 import { OrderNoteField } from "./order-note-field";
-import { useOrderStore, type OrderDraft } from "./order-store";
+import { orderOwner, pendingOrderDraft, useOrderStore, type OrderDraft } from "./order-store";
 import { PaymentAdjustment } from "./payment-adjustment";
 import {
+  editableSaleFees,
+  pendingPaymentDetails,
   paymentTotals,
   resolvePendingTransaction,
   savePayment,
@@ -47,15 +49,15 @@ import {
   type Discount,
   type PaymentReceipt,
 } from "./payment-details";
-import { usePaymentMethods } from "./payment-methods";
+import { findRecordedPaymentMethod, usePaymentMethods } from "./payment-methods";
 import { PaymentProof } from "./payment-proof";
 import { PaymentLeaveDialog } from "./payment-leave-dialog";
 
 type DrawerStep = "fee" | "discount" | "cash" | "qris" | "proof";
 
 const drawerTitles: Record<DrawerStep, string> = {
-  fee: "Biaya Tambahan",
-  discount: "Diskon",
+  fee: "Tambah biaya tambahan",
+  discount: "Tambah diskon",
   cash: "Nominal Dibayarkan",
   qris: "Pembayaran QRIS",
   proof: "Upload Bukti Pembayaran",
@@ -64,69 +66,42 @@ const paymentIcons = { cash: Banknote, qris: QrCode, noncash: CreditCard };
 
 export function PaymentPage({ orderId, pending, returnSession }: { orderId: string; pending?: boolean; returnSession?: string }) {
   const account = useAuthStore((state) => state.session?.account);
-  const accountId = account?.account_id;
+  const cashierMode = useAuthStore((state) => usesCashierMode(state.session));
+  const draftOwner = useAuthStore((state) => orderOwner(state.session));
+  const branchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
   const order = useOrderStore((state) =>
-    state.owner === accountId
+    state.owner === draftOwner
       ? state.orders.find((entry) => entry.id === orderId)
       : undefined,
   );
   const [completed, setCompleted] = useState<{
-    accountId: string;
+    owner: string;
     receipt: PaymentReceipt;
   } | null>(null);
   const receipt =
-    completed?.accountId === accountId ? completed?.receipt : undefined;
+    completed?.owner === draftOwner ? completed?.receipt : undefined;
+  const methodsQuery = usePaymentMethods(!!account && !receipt, pending ? "always" : undefined);
   const detail = useQuery({
     queryKey: ['transactions', 'detail', account?.account_username, orderId],
     queryFn: ({ signal }) => fetchTransactionDetail(orderId, signal),
     enabled: !!account && !!pending && !receipt,
     staleTime: 0,
   });
-  const serverOrder = pending && detail.data?.status === 'pending' ? detail.data : undefined;
+  const wrongBranch = !!pending && !!branchId && !!detail.data && detail.data.branchId !== branchId;
+  const serverOrder = pending && !wrongBranch && detail.data?.status === 'pending' ? detail.data : undefined;
   const payableOrder = pending ? (serverOrder && pendingOrderDraft(serverOrder)) : order;
   const isLoading = pending && detail.isPending;
   const loadFailed = pending && detail.isError;
   const showCheckout = !receipt && !isLoading && !loadFailed;
   const hasItems = account && payableOrder && payableOrder.items.length > 0;
+  const orderPath = cashierMode ? "/" : "/order";
+  const prevLink = pending ? "/cart" : orderPath;
+  const prevSearch = pending && returnSession ? { session: returnSession } : undefined;
 
   return (
-    <PageLayout title="Pembayaran" prevLink="/cart" prevSearch={returnSession ? { session: returnSession } : undefined}>
+    <PageLayout title="Pembayaran" prevLink={prevLink} prevSearch={prevSearch} wide>
       {receipt && (
-        <section
-          className="space-y-4 rounded-xl border p-5 text-center"
-          aria-labelledby="payment-complete"
-        >
-          <CircleCheck
-            className="mx-auto size-10 text-emerald-600"
-            aria-hidden="true"
-          />
-          <div>
-            <h2
-              id="payment-complete"
-              className="text-xl font-semibold"
-              role="status"
-            >
-              Pembayaran selesai
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {receipt.order.name} ({receipt.method.title})
-            </p>
-          </div>
-          <dl className="space-y-2 border-t pt-4 text-left text-sm">
-            <TotalRow label="Total pembayaran" amount={receipt.total} />
-            {receipt.method.kind === "cash" && (
-              <>
-                <TotalRow label="Dibayarkan" amount={receipt.paid} />
-                <TotalRow label="Kembali" amount={receipt.change} />
-              </>
-            )}
-          </dl>
-          <Button asChild className="h-11 w-full">
-            <Link to="/cart" search={{ session: returnSession }} replace>
-              Kembali ke antrean
-            </Link>
-          </Button>
-        </section>
+        <PaymentCompleteDrawer receipt={receipt} returnSession={returnSession} />
       )}
       {!receipt && isLoading && (
         <p role="status" className="text-sm text-muted-foreground">Memuat pesanan...</p>
@@ -137,27 +112,34 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
           <Button type="button" variant="outline" onClick={() => void detail.refetch()}>Coba lagi</Button>
         </div>
       )}
-      {showCheckout && hasItems && (
+      {showCheckout && hasItems && draftOwner && (
         <PaymentForm
-          key={account.account_id}
+          key={draftOwner}
           account={account}
+          draftOwner={draftOwner}
+          branchId={branchId}
           order={payableOrder}
           pendingSale={serverOrder}
+          methodsQuery={methodsQuery}
           onComplete={(saved) => {
-            setCompleted({ accountId: account.account_id, receipt: saved });
+            setCompleted({ owner: draftOwner, receipt: saved });
             const store = useOrderStore.getState();
-            if (!pending && store.owner === account.account_id)
+            if (!pending && store.owner === draftOwner)
               store.removeOrder(saved.order.id);
           }}
         />
       )}
       {showCheckout && !hasItems && (
-        <div className="space-y-4 rounded-xl border p-5 text-center">
+        <div className="bento-surface mx-auto max-w-lg space-y-4 p-5 text-center">
           <p role="status" className="text-sm text-muted-foreground">
-            {pending ? 'Pesanan ini sudah tidak menunggu pembayaran.' : 'Pesanan tidak tersedia atau belum memiliki produk.'}
+            {wrongBranch && 'Cabang pesanan tidak sesuai dengan cabang kasir.'}
+            {!wrongBranch && pending && 'Pesanan ini sudah tidak menunggu pembayaran.'}
+            {!pending && 'Pesanan tidak tersedia atau belum memiliki produk.'}
           </p>
           <Button asChild variant="outline">
-            <Link to="/cart" search={{ session: returnSession }}>Kembali ke antrean</Link>
+            <Link to={prevLink} search={prevSearch}>
+              {pending ? "Kembali ke antrean" : "Kembali ke Order"}
+            </Link>
           </Button>
         </div>
       )}
@@ -165,42 +147,75 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
   );
 }
 
-function pendingOrderDraft(sale: Sale): OrderDraft {
-  return {
-    id: sale.id, name: sale.id, note: sale.note,
-    items: sale.items.map((item, index) => ({
-      key: `${item.productId}-${index}`,
-      quantity: item.quantity,
-      unitPrice: item.quantity && item.lineTotal !== undefined ? item.lineTotal / item.quantity : item.unitPrice ?? 0,
-      product: {
-        id: item.productId, title: item.title, price: item.unitPrice ?? 0, category: '',
-        image: '', photo: item.image ?? '', store: sale.store, discount: 0,
-        discountType: 'Tanpa diskon', stock: 0, description: '', active: true,
-      },
-    })),
-  };
+function PaymentCompleteDrawer({ receipt, returnSession }: {
+  receipt: PaymentReceipt;
+  returnSession?: string;
+}) {
+  const [open, setOpen] = useState(true);
+  const navigate = useNavigate();
+
+  return (
+    <Drawer
+      open={open}
+      autoFocus
+      onOpenChange={setOpen}
+      onAnimationEnd={(next) => {
+        if (!next) void navigate({ to: "/cart", search: { session: returnSession }, replace: true });
+      }}
+    >
+      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <DrawerHeader className="shrink-0 text-center">
+          <CircleCheck className="mx-auto mb-2 size-10 text-emerald-600" aria-hidden="true" />
+          <DrawerTitle>Pembayaran selesai</DrawerTitle>
+          <DrawerDescription>{receipt.order.name} ({receipt.method.title})</DrawerDescription>
+        </DrawerHeader>
+        <div className="min-h-0 overflow-y-auto px-4 pb-4">
+          <dl className="space-y-2 text-sm">
+            <TotalRow label="Total pembayaran" amount={receipt.total} />
+            {receipt.method.kind === "cash" && (
+              <>
+                <TotalRow label="Dibayarkan" amount={receipt.paid} />
+                <TotalRow label="Kembali" amount={receipt.change} />
+              </>
+            )}
+          </dl>
+        </div>
+        <DrawerFooter className="shrink-0 border-t">
+          <DrawerClose asChild>
+            <Button type="button">Selesai</Button>
+          </DrawerClose>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
 }
 
 function PaymentForm({
   account,
+  draftOwner,
+  branchId,
   order,
   pendingSale,
+  methodsQuery,
   onComplete,
 }: {
   account: Account;
+  draftOwner: string;
+  branchId?: string;
   order: OrderDraft;
   pendingSale?: Sale;
+  methodsQuery: ReturnType<typeof usePaymentMethods>;
   onComplete: (receipt: PaymentReceipt) => void;
 }) {
-  const accountId = account.account_id;
-  const methodsQuery = usePaymentMethods();
   const cashSession = useCashSession();
   const queryClient = useQueryClient();
   const methods = methodsQuery.data ?? [];
   const [methodCode, setMethodCode] = useState("");
-  const [fee, setFee] = useState<AdditionalFee | null>(null);
-  const [discount, setDiscount] = useState<Discount | null>(null);
-  const [drawer, setDrawer] = useState<DrawerStep | null>(null);
+  const [fees, setFees] = useState<SaleFee[]>();
+  const [discounts, setDiscounts] = useState<SaleDiscount[]>();
+  const [adjustmentIndex, setAdjustmentIndex] = useState<number>();
+  const [drawer, setDrawerStep] = useState<DrawerStep | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [paid, setPaid] = useState<number | null>(null);
   const [cashInput, setCashInput] = useState("");
   const [loadedQr, setLoadedQr] = useState("");
@@ -210,6 +225,8 @@ function PaymentForm({
   const saving = useRef(false);
   const summaryRef = useRef<HTMLElement>(null);
   const summarySpaceRef = useRef<HTMLDivElement>(null);
+  const drawerTitleRef = useRef<HTMLHeadingElement>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const cashFormId = useId();
 
   useLayoutEffect(() => {
@@ -226,23 +243,37 @@ function PaymentForm({
     return () => observer.disconnect();
   }, []);
 
+  useLayoutEffect(() => {
+    if (drawerOpen && drawer === "proof") drawerTitleRef.current?.focus({ preventScroll: true });
+  }, [drawer, drawerOpen]);
+
   const pendingCode = pendingSale?.paymentCode ?? pendingSale?.paymentMethod;
-  const recordedKind = ['cash', 'tunai'].includes(pendingCode?.toLowerCase() ?? '') ? 'cash' : 'noncash';
-  const recordedMethod: (PaymentReceipt['method'] & { image?: string }) | undefined = pendingCode && pendingSale ? {
-    code: pendingCode,
-    title: pendingSale.paymentMethod,
-    kind: recordedKind,
-  } : undefined;
-  const method = recordedMethod ?? methods.find((entry) => entry.code === methodCode);
+  const recordedMethod = findRecordedPaymentMethod(methods, pendingCode);
+  const method = methodCode ? methods.find((entry) => entry.code === methodCode) : recordedMethod;
+  const checkingPendingMethods = !!pendingSale && (methodsQuery.isFetching || methodsQuery.isError);
   const isCash = method?.kind === "cash";
   const isQris = method?.kind === "qris";
   const unavailableMethod =
     !method && (drawer === "cash" || drawer === "qris" || drawer === "proof");
-  const confirmingNonQris = drawer === "proof" && !isQris;
-  const totals = pendingSale ? {
-    subtotal: pendingSale.subtotal ?? order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
-    total: pendingSale.total, methodFeeAmount: 0, discountAmount: 0,
-  } : paymentTotals(order, fee, discount, method?.fee);
+  const confirmingPayment = drawer === "proof" && (!!pendingSale || !isQris);
+  const feeList = fees ?? (pendingSale ? editableSaleFees(pendingSale, recordedMethod) : []);
+  const discountList = discounts ?? (pendingSale?.discounts ?? []).filter(({ value }) => value !== 0);
+  const pendingPayment = pendingSale && pendingPaymentDetails(order, pendingSale, method, recordedMethod, {
+    additionalPrices: fees, discounts,
+  });
+  const totals = pendingPayment?.totals ?? paymentTotals(order, feeList, discountList, method?.fee);
+  const selectedFee = drawer === "fee" && adjustmentIndex !== undefined ? feeList[adjustmentIndex] : undefined;
+  const selectedDiscount = drawer === "discount" && adjustmentIndex !== undefined ? discountList[adjustmentIndex] : undefined;
+  let initialAdjustment: AdditionalFee | Discount | null = null;
+  if (selectedFee) initialAdjustment = { name: selectedFee.title, amount: selectedFee.value };
+  if (selectedDiscount) initialAdjustment = {
+    name: selectedDiscount.title,
+    type: selectedDiscount.type === "fixed" ? "nominal" : "percent",
+    value: selectedDiscount.value,
+  };
+  let drawerTitle = drawer && drawerTitles[drawer];
+  if (selectedFee) drawerTitle = "Edit biaya tambahan";
+  if (selectedDiscount) drawerTitle = "Edit diskon";
   const change = paid === null ? 0 : Math.max(0, paid - totals.total);
   const canPayCash = paid !== null && paid >= totals.total;
   const cashInputValid =
@@ -254,21 +285,58 @@ function PaymentForm({
     0,
   );
 
-  function openCash() {
-    setCashInput(paid === null ? "" : String(paid));
+  function openCash(amount = paid) {
+    setCashInput(amount === null ? "" : String(amount));
     setDrawer("cash");
+  }
+
+  function setDrawer(step: DrawerStep | null) {
+    if (step !== null) {
+      if (!drawerOpen && document.activeElement instanceof HTMLElement) {
+        drawerTriggerRef.current = document.activeElement;
+      }
+      setDrawerStep(step);
+    }
+    setDrawerOpen(step !== null);
+  }
+
+  function openAdjustment(kind: "fee" | "discount", index?: number) {
+    setAdjustmentIndex(index);
+    setDrawer(kind);
+  }
+
+  function saveAdjustment(title: string, value: number, type: Discount["type"]) {
+    if (drawer === "fee") {
+      const entry = { title, value };
+      setFees(adjustmentIndex === undefined
+        ? [...feeList, entry]
+        : feeList.map((fee, index) => index === adjustmentIndex ? entry : fee));
+    } else if (drawer === "discount") {
+      const entry: SaleDiscount = { title, value, type: type === "percent" ? "percent" : "fixed" };
+      setDiscounts(adjustmentIndex === undefined
+        ? [...discountList, entry]
+        : discountList.map((discount, index) => index === adjustmentIndex ? entry : discount));
+    }
+    setDrawer(null);
+  }
+
+  function removeAdjustment() {
+    if (drawer === "fee") setFees(feeList.filter((_, index) => index !== adjustmentIndex));
+    if (drawer === "discount") setDiscounts(discountList.filter((_, index) => index !== adjustmentIndex));
+    setDrawer(null);
   }
 
   async function finish(proof?: File) {
     if (
       !method ||
+      checkingPendingMethods ||
       saving.current ||
       (isCash && !canPayCash) ||
-      (isQris && !proof)
+      (isQris && !pendingSale && !proof)
     )
       return;
     const store = useOrderStore.getState();
-    if (useAuthStore.getState().session?.account.account_id !== accountId || (!pendingSale && (store.owner !== accountId || !store.orders.includes(order)))) {
+    if (orderOwner(useAuthStore.getState().session) !== draftOwner || (!pendingSale && (store.owner !== draftOwner || !store.orders.includes(order)))) {
       setSaveError("Pesanan berubah. Buka ulang pembayaran dari cart.");
       return;
     }
@@ -276,30 +344,37 @@ function PaymentForm({
     setBusy(true);
     setSaveError("");
     try {
-      if (!cashSessionAllowsSales(await queryClient.fetchQuery(cashSessionOptions(account)))) {
+      if (!cashSessionAllowsSales(await queryClient.fetchQuery(cashSessionOptions(account)), branchId)) {
         setDrawer(null);
         throw new Error('Buka shift dari Order atau Profil sebelum menyimpan pembayaran.');
       }
-      if (useAuthStore.getState().session?.account.account_id !== accountId) throw new Error('Sesi login berubah. Buka ulang pembayaran.')
+      if (orderOwner(useAuthStore.getState().session) !== draftOwner) throw new Error('Cabang atau akun berubah. Buka ulang pembayaran.')
       const payment: PaymentReceipt = {
         ...totals,
         order,
         method,
-        fee,
-        discount,
+        additionalPrices: feeList,
+        discounts: discountList,
         paid: isCash ? (paid ?? 0) : totals.total,
         change: isCash ? change : 0,
         proof,
       };
-      if (pendingSale) await resolvePendingTransaction(order.id, payment);
-      else await savePayment(payment, account);
+      if (pendingSale) {
+        await resolvePendingTransaction(order.id, {
+          ...pendingPayment?.updates,
+          methodCode: method.code,
+          ...(isCash && { paid: payment.paid, change: payment.change }),
+        }, branchId);
+      } else {
+        await savePayment(payment, account, 'add_trx', branchId);
+        void queryClient.invalidateQueries({ queryKey: ["products"] });
+      }
       onComplete(payment);
       refreshCashSessionData(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      void queryClient.invalidateQueries({ queryKey: ["products"] });
     } catch (error) {
       refreshCashSessionData(queryClient);
-      if (pendingSale) void queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      if (pendingSale) void queryClient.invalidateQueries({ queryKey: ['transactions'], refetchType: 'none' });
       const message = error instanceof Error ? error.message : "Pembayaran gagal disimpan. Coba lagi.";
       if (/buka shift/i.test(message)) setDrawer(null);
       setSaveError(message);
@@ -310,12 +385,12 @@ function PaymentForm({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <section
-        className="overflow-hidden rounded-xl border bg-background"
+        className="bento-surface overflow-hidden"
         aria-labelledby="product-summary"
       >
-        <header className="border-b p-4">
+        <header className="border-b p-4 sm:p-5">
           <h2 id="product-summary" className="text-sm font-semibold">
             Ringkasan Produk
           </h2>
@@ -323,7 +398,7 @@ function PaymentForm({
             {order.name} ({itemCount} item)
           </p>
         </header>
-        <ul className="divide-y px-4">
+        <ul className="divide-y px-4 sm:px-5">
           {order.items.map((item) => (
             <OrderItemRow key={item.key} item={item} showDiscount />
           ))}
@@ -334,122 +409,114 @@ function PaymentForm({
           </div>
         )}
         {!pendingSale && (
-          <>
-            <div className="border-t p-4"><OrderNoteField order={order} disabled={busy} /></div>
-            <div className="grid grid-cols-2 gap-2 border-t p-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-8 whitespace-normal py-2"
-              disabled={busy}
-              onClick={() => setDrawer("fee")}
-            >
-              {fee ? <Pencil aria-hidden="true" /> : <Plus aria-hidden="true" />}{" "}
-              Biaya Tambahan
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-8 whitespace-normal py-2"
-              disabled={busy}
-              onClick={() => setDrawer("discount")}
-            >
-              <Tag aria-hidden="true" /> Diskon
-            </Button>
-            </div>
-          </>
+          <div className="border-t p-4"><OrderNoteField order={order} disabled={busy} /></div>
         )}
+        <div className="grid grid-cols-2 gap-2 border-t p-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="whitespace-normal"
+            disabled={busy}
+            onClick={() => openAdjustment("fee")}
+          >
+            <Plus aria-hidden="true" /> Tambah biaya
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="whitespace-normal"
+            disabled={busy}
+            onClick={() => openAdjustment("discount")}
+          >
+            <Tag aria-hidden="true" /> Tambah diskon
+          </Button>
+        </div>
       </section>
 
       <section
-        className="space-y-3 rounded-xl border bg-background p-4"
+        className="bento-surface space-y-3 p-4 sm:p-5"
         aria-labelledby="payment-methods"
       >
         <h2 id="payment-methods" className="text-sm font-semibold">
           Metode Pembayaran
         </h2>
-        {pendingSale && (
-          <p className="text-sm">{pendingSale.paymentMethod}</p>
+        {methodsQuery.isPending && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Memuat metode pembayaran…
+          </p>
         )}
-        {!pendingSale && (
-          <>
-          {methodsQuery.isPending && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Memuat metode pembayaran…
+        {methodsQuery.isError && (
+          <div className="flex items-center justify-between gap-2">
+            <p role="alert" className="text-sm text-muted-foreground">
+              Metode pembayaran gagal dimuat.
             </p>
-          )}
-          {methodsQuery.isError && (
-            <div className="flex items-center justify-between gap-2">
-              <p role="alert" className="text-sm text-muted-foreground">
-                Metode pembayaran gagal dimuat.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                loading={methodsQuery.isFetching}
-                onClick={() => void methodsQuery.refetch()}
-              >
-                Coba lagi
-              </Button>
-            </div>
-          )}
-          {methodsQuery.isSuccess && !methods.length && (
-            <p className="text-sm text-muted-foreground">
-              Belum ada metode pembayaran aktif.
-            </p>
-          )}
-          {methods.length > 0 && (
-            <ul className="space-y-2">
-              {methods.map((entry) => {
-                const Icon = paymentIcons[entry.kind];
-                return (
-                  <li key={entry.code}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-auto min-h-10 w-full justify-start gap-3 whitespace-normal px-3 py-2 text-left aria-pressed:border-primary aria-pressed:bg-muted"
-                      aria-pressed={entry.code === methodCode}
-                      disabled={busy}
-                      onClick={() => {
-                        setMethodCode(entry.code);
-                        setSaveError("");
-                        if (entry.kind === "cash") openCash();
-                      }}
-                    >
-                      <Icon aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block">{entry.title}</span>
-                        {entry.fee && (
-                          <span className="block text-xs text-muted-foreground">
-                            {entry.fee.type === "percent"
-                              ? entry.fee.amount.toLocaleString("id-ID") + "%"
-                              : formatCurrency(entry.fee.amount)}
-                          </span>
-                        )}
-                        {entry.missingFee && (
-                          <span className="block text-xs text-muted-foreground">
-                            Fee sudah dihapus.
-                          </span>
-                        )}
-                      </span>
-                      {entry.code === methodCode && (
-                        <Check className="size-4 shrink-0" aria-hidden="true" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              loading={methodsQuery.isFetching}
+              onClick={() => void methodsQuery.refetch()}
+            >
+              Coba lagi
+            </Button>
+          </div>
+        )}
+        {methodsQuery.isSuccess && !methods.length && (
+          <p className="text-sm text-muted-foreground">
+            Belum ada metode pembayaran aktif.
+          </p>
+        )}
+        {methods.length > 0 && (
+          <ul className="space-y-2">
+            {methods.map((entry) => {
+              const Icon = paymentIcons[entry.kind];
+              return (
+                <li key={entry.code}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-11 w-full justify-start gap-3 rounded-xl whitespace-normal px-3 py-2 text-left aria-pressed:border-primary aria-pressed:bg-muted"
+                    aria-pressed={entry.code === method?.code}
+                    disabled={busy}
+                    onClick={() => {
+                      const cashAmount = !pendingSale || entry.code === method?.code ? paid : null;
+                      setMethodCode(entry.code);
+                      setPaid(cashAmount);
+                      setSaveError("");
+                      if (entry.kind === "cash") openCash(cashAmount);
+                    }}
+                  >
+                    <Icon aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block">{entry.title}</span>
+                      {entry.fee && (
+                        <span className="block text-xs text-muted-foreground">
+                          {entry.fee.type === "percent"
+                            ? entry.fee.amount.toLocaleString("id-ID") + "%"
+                            : formatCurrency(entry.fee.amount)}
+                        </span>
                       )}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          </>
+                      {entry.missingFee && (
+                        <span className="block text-xs text-muted-foreground">
+                          Fee sudah dihapus.
+                        </span>
+                      )}
+                    </span>
+                    {entry.code === method?.code && (
+                      <Check className="size-4 shrink-0" aria-hidden="true" />
+                    )}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
 
-      <div ref={summarySpaceRef} aria-hidden="true" />
+      <div ref={summarySpaceRef} className="col-span-full" aria-hidden="true" />
       <section
         ref={summaryRef}
-        className="payment-summary-bar fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col gap-2 border-t bg-background pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))]"
+        className="payment-summary-bar fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col gap-2 rounded-t-2xl border-t bg-card pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] sm:pl-[calc(1.5rem+env(safe-area-inset-left))] sm:pr-[calc(1.5rem+env(safe-area-inset-right))]"
         aria-labelledby="payment-total"
       >
         <h2 id="payment-total" className="shrink-0 text-sm font-semibold">
@@ -458,28 +525,27 @@ function PaymentForm({
         <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain">
           <dl className="space-y-2 text-sm">
             <TotalRow label="Subtotal produk" amount={totals.subtotal} />
-            {!!pendingSale?.tax && <TotalRow label="PPN" amount={pendingSale.tax} />}
-            {fee && <TotalRow label={fee.name} amount={fee.amount} />}
+            {!!pendingPayment?.taxAmount && <TotalRow label="PPN" amount={pendingPayment.taxAmount} />}
+            {(pendingPayment?.fees ?? feeList).map(({ title, value }, index) => (
+              <TotalRow key={`${title}-${index}`} label={title} amount={value} disabled={busy}
+                onEdit={index < feeList.length ? () => openAdjustment("fee", index) : undefined} />
+            ))}
             {totals.methodFeeAmount > 0 && (
               <TotalRow label="Fee" amount={totals.methodFeeAmount} />
             )}
-            {discount && (
+            {discountList.map(({ title, type, value }, index) => (
               <TotalRow
-                label={
-                  discount.type === "percent"
-                    ? discount.name +
-                      " (" +
-                      discount.value.toLocaleString("id-ID") +
-                      "%)"
-                    : discount.name
-                }
-                amount={-totals.discountAmount}
+                key={`${title}-${index}`}
+                label={type === "percent" ? `${title} (${value.toLocaleString("id-ID")}%)` : title}
+                amount={-(totals.discountAmounts[index] ?? 0)}
+                disabled={busy}
+                onEdit={() => openAdjustment("discount", index)}
               />
-            )}
+            ))}
             <TotalRow
               label="Total pembayaran"
               amount={totals.total}
-              className="border-t pt-2 font-semibold"
+              className="border-t pt-2 text-base font-semibold"
             />
             {isCash && (
               <>
@@ -494,7 +560,7 @@ function PaymentForm({
                         "Edit nominal dibayarkan" +
                         (paid === null ? "" : " " + formatCurrency(paid))
                       }
-                      onClick={openCash}
+                      onClick={() => openCash()}
                       disabled={busy}
                       className="tabular-nums"
                     >
@@ -512,7 +578,7 @@ function PaymentForm({
               Nominal kurang {formatCurrency(totals.total - paid)}.
             </p>
           )}
-          {saveError && drawer !== "proof" && (
+          {saveError && (!drawerOpen || drawer !== "proof") && (
             <p role="alert" className="text-sm text-destructive">
               {saveError}
             </p>
@@ -520,16 +586,16 @@ function PaymentForm({
         </div>
         <Button
           type="button"
-          className="h-12 w-full"
+          className="h-12 w-full rounded-xl"
           loading={busy && isCash}
-          disabled={busy || cashSession.isPending || !method || (isCash && !canPayCash)}
+          disabled={busy || cashSession.isPending || checkingPendingMethods || !method || (isCash && !canPayCash)}
           onClick={() => {
             if (cashSession.isError) {
               setSaveError('Status shift belum bisa diperiksa. Coba lagi.');
               void cashSession.refetch();
               return;
             }
-            if (!cashSessionAllowsSales(cashSession.data)) {
+            if (!cashSessionAllowsSales(cashSession.data, branchId)) {
               setSaveError('Buka shift dari Order atau Profil sebelum menerima pembayaran.');
               return;
             }
@@ -547,7 +613,7 @@ function PaymentForm({
       </section>
 
       <Drawer
-        open={drawer !== null}
+        open={drawerOpen}
         dismissible={!busy}
         onOpenChange={(open) => {
           if (!open && !busy) setDrawer(null);
@@ -555,17 +621,22 @@ function PaymentForm({
       >
         <DrawerContent
           className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+          onCloseAutoFocus={(event) => {
+            if (!drawerTriggerRef.current?.isConnected) return;
+            event.preventDefault();
+            drawerTriggerRef.current.focus({ preventScroll: true });
+          }}
           {...(drawer === "cash" || drawer === "qris" || drawer === "proof"
             ? {}
             : { "aria-describedby": undefined })}
         >
           {drawer && (
-            <>
+            <div className="drawer-step contents" key={drawer}>
               <DrawerHeader className="shrink-0">
-                <DrawerTitle>
+                <DrawerTitle ref={drawerTitleRef} tabIndex={-1}>
                   {unavailableMethod && "Metode pembayaran berubah"}
-                  {!unavailableMethod && confirmingNonQris && "Konfirmasi pembayaran"}
-                  {!unavailableMethod && !confirmingNonQris && drawerTitles[drawer]}
+                  {!unavailableMethod && confirmingPayment && "Konfirmasi pembayaran"}
+                  {!unavailableMethod && !confirmingPayment && drawerTitle}
                 </DrawerTitle>
                 {unavailableMethod && (
                   <DrawerDescription>
@@ -599,19 +670,11 @@ function PaymentForm({
               )}
               {(drawer === "fee" || drawer === "discount") && (
                 <PaymentAdjustment
-                  key={drawer}
+                  key={`${drawer}-${adjustmentIndex ?? "new"}`}
                   kind={drawer}
-                  initial={drawer === "fee" ? fee : discount}
-                  onSave={(name, value, type) => {
-                    if (drawer === "fee") setFee({ name, amount: value });
-                    else setDiscount({ name, type, value });
-                    setDrawer(null);
-                  }}
-                  onRemove={() => {
-                    if (drawer === "fee") setFee(null);
-                    else setDiscount(null);
-                    setDrawer(null);
-                  }}
+                  initial={initialAdjustment}
+                  onSave={saveAdjustment}
+                  onRemove={removeAdjustment}
                 />
               )}
               {drawer === "cash" && !unavailableMethod && (
@@ -656,12 +719,12 @@ function PaymentForm({
               )}
               {drawer === "qris" && !unavailableMethod && (
                 <>
-                  <div className="min-h-0 overflow-y-auto px-4 pb-4">
+                  <div className="payment-step-body min-h-0 overflow-y-auto px-4 pb-4">
                     {method?.image && failedQr !== method.image && (
                       <img
                         src={method.image}
                         alt="Kode QRIS toko"
-                        className="mx-auto aspect-square w-full max-w-64 rounded-lg border bg-background object-contain p-2"
+                        className="mx-auto aspect-square w-full max-w-[min(16rem,34dvh)] rounded-lg border bg-background object-contain p-2"
                         onLoad={() => setLoadedQr(method.image ?? "")}
                         onError={() => setFailedQr(method.image ?? "")}
                       />
@@ -700,7 +763,7 @@ function PaymentForm({
                 </>
               )}
               {drawer === "proof" && !unavailableMethod && (pendingSale ? <>
-                <div className="min-h-0 space-y-2 overflow-y-auto px-4 pb-4">
+                <div className={cn("min-h-0 space-y-2 overflow-y-auto px-4 pb-4", isQris && method?.image && "payment-step-body")}>
                   <p>Konfirmasi setelah pembayaran diterima.</p>
                   {saveError && <p role="alert" className="text-destructive">{saveError}</p>}
                 </div>
@@ -716,11 +779,11 @@ function PaymentForm({
                   required={isQris}
                   onFinish={(file) => void finish(file)}
                 />)}
-            </>
+            </div>
           )}
         </DrawerContent>
       </Drawer>
-      <PaymentLeaveDialog busy={busy} />
+      <PaymentLeaveDialog busy={busy} pending={!!pendingSale} />
     </div>
   );
 }
@@ -729,15 +792,35 @@ function TotalRow({
   label,
   amount,
   className = "",
+  onEdit,
+  disabled,
 }: {
   label: ReactNode;
   amount: number;
   className?: string;
+  onEdit?: () => void;
+  disabled?: boolean;
 }) {
+  const formattedAmount = formatCurrency(amount);
   return (
-    <div className={cn("flex justify-between gap-3", className)}>
-      <dt className="min-w-0">{label}</dt>
-      <dd className="shrink-0 tabular-nums">{formatCurrency(amount)}</dd>
+    <div className={cn("flex justify-between gap-3", onEdit && "items-center", className)}>
+      <dt className="min-w-0 break-words">{label}</dt>
+      <dd className="shrink-0 tabular-nums">
+        {onEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={onEdit}
+            aria-label={typeof label === "string" ? `Edit ${label}, ${formattedAmount}` : `Edit ${formattedAmount}`}
+            className="tabular-nums"
+          >
+            {formattedAmount}
+            <Pencil className="shrink-0" aria-hidden="true" />
+          </Button>
+        ) : formattedAmount}
+      </dd>
     </div>
   );
 }

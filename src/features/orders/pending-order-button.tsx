@@ -2,24 +2,32 @@ import { useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import type { Account } from '@/features/auth/auth-store'
+import { getCashierBranch, useAuthStore, type Account } from '@/features/auth/auth-store'
 import { cashSessionAllowsSales, cashSessionOptions, refreshCashSessionData } from '@/features/cash-session/cash-session-query'
-import { useOrderStore, type OrderDraft } from './order-store'
+import { orderOwner, useOrderStore, type OrderDraft } from './order-store'
 import { paymentTotals, savePayment } from './payment-details'
 import { fetchPaymentMethods, paymentMethodsKey } from './payment-methods'
 
-export function PendingOrderButton({ account, order, onQueued }: { account: Account; order: OrderDraft; onQueued: () => void }) {
+export function PendingOrderButton({ account, order, onQueued, onShiftRequired }: {
+  account: Account
+  order: OrderDraft
+  onQueued: () => void
+  onShiftRequired: () => void
+}) {
   const [busy, setBusy] = useState(false)
   const saving = useRef(false)
   const queryClient = useQueryClient()
+  const owner = useAuthStore((state) => orderOwner(state.session))
+  const branchId = useAuthStore((state) => getCashierBranch(state.session)?.id)
 
   async function queueOrder() {
     if (saving.current || !order.items.length) return
     saving.current = true
     setBusy(true)
     try {
-      if (!cashSessionAllowsSales(await queryClient.fetchQuery(cashSessionOptions(account)))) {
-        throw new Error('Buka shift di halaman Order sebelum memasukkan pesanan ke antrean.')
+      if (!cashSessionAllowsSales(await queryClient.fetchQuery(cashSessionOptions(account)), branchId)) {
+        onShiftRequired()
+        return
       }
       const methods = await queryClient.fetchQuery({
         queryKey: paymentMethodsKey(account.store?.id || account.event_id),
@@ -30,14 +38,14 @@ export function PendingOrderButton({ account, order, onQueued }: { account: Acco
       if (!method) throw new Error('Metode Tunai tidak aktif.')
 
       const store = useOrderStore.getState()
-      if (store.owner !== account.account_id || !store.orders.includes(order)) {
+      if (orderOwner(useAuthStore.getState().session) !== owner || store.owner !== owner || !store.orders.includes(order)) {
         throw new Error('Pesanan berubah. Buka ulang ringkasan pesanan.')
       }
 
-      const totals = paymentTotals(order, null, null, method.fee)
-      await savePayment({ ...totals, order, method, fee: null, discount: null, paid: 0, change: 0 }, account, 'pending_trx')
+      const totals = paymentTotals(order, [], [], method.fee)
+      await savePayment({ ...totals, order, method, additionalPrices: [], discounts: [], paid: 0, change: 0 }, account, 'pending_trx', branchId)
       const current = useOrderStore.getState()
-      if (current.owner === account.account_id) {
+      if (current.owner === owner) {
         if (current.activeId === order.id) current.createOrder()
         current.removeOrder(order.id)
         toast.success('Pesanan masuk antrean.')
@@ -49,7 +57,7 @@ export function PendingOrderButton({ account, order, onQueued }: { account: Acco
     } catch (error) {
       refreshCashSessionData(queryClient)
       const message = error instanceof Error ? error.message : 'Pesanan gagal dimasukkan ke antrean.'
-      if (/buka shift/i.test(message)) onQueued()
+      if (/buka shift/i.test(message)) onShiftRequired()
       toast.error(message)
     } finally {
       saving.current = false
@@ -58,7 +66,7 @@ export function PendingOrderButton({ account, order, onQueued }: { account: Acco
   }
 
   return (
-    <Button type="button" variant="outline" className="h-auto min-h-8 whitespace-normal py-2"
+    <Button type="button" variant="outline" className="whitespace-normal"
       disabled={busy || !order.items.length} loading={busy} onClick={() => void queueOrder()}>
       Masukkan ke antrean
     </Button>

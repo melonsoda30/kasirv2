@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { useAuthStore, type Branch } from "@/features/auth/auth-store";
 import type { StoreRecord } from "@/features/products/store-api";
-import { request } from "@/lib/api";
+import { isEmptyListResponse, request } from "@/lib/api";
 
 export type AdminStore = Omit<StoreRecord, "store_days">;
 export type BranchChange =
@@ -31,6 +31,7 @@ async function fetchStore(signal: AbortSignal): Promise<AdminStore | null> {
     signal,
   });
 
+  if (isEmptyListResponse(response)) return null;
   if (Array.isArray(response)) return response[0] ?? null;
   if (response?.status === "success" && Array.isArray(response.data)) return response.data[0] ?? null;
   throw new Error(response?.msg || "Gagal memuat daftar toko.");

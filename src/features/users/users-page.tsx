@@ -82,6 +82,8 @@ function UserFilterDrawer({
                     <Button
                       key={option.value}
                       type="button"
+                      size="sm"
+                      className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
                       variant={
                         draft[key] === option.value ? "default" : "outline"
                       }
@@ -136,7 +138,7 @@ function UserCard({ user }: { user: UserRecord }) {
     ? new URL(user.user_foto, `${API_BASE_URL.replace(/\/$/, "")}/`).href
     : "";
   return (
-    <article className="flex items-start gap-3 rounded-lg border bg-background p-4">
+    <article className="bento-surface flex items-start gap-3 p-4">
       <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
         {image && image !== failedImage ? (
           <img
@@ -225,7 +227,7 @@ export function UsersPage() {
           )}
         >
           <div className="overflow-hidden" inert={!showTitle}>
-            <div className="flex h-12 items-center gap-2 px-4">
+            <div className="page-gutter flex h-12 items-center gap-2">
               <Button asChild type="button" variant="ghost" size="icon">
                 <Link to="/profil" aria-label="Kembali ke profil">
                   <ArrowLeft aria-hidden="true" />
@@ -237,7 +239,7 @@ export function UsersPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 px-4 py-3">
+        <div className="page-gutter flex gap-2 py-3">
           <Input
             type="search"
             aria-label="Cari users"
@@ -258,7 +260,7 @@ export function UsersPage() {
       </header>
       <main
         id="main-content"
-        className="min-w-0 flex-1 px-4 pt-[calc(109px+env(safe-area-inset-top)+1rem)] pb-6"
+        className="page-gutter min-w-0 flex-1 pt-[calc(109px+env(safe-area-inset-top)+1rem)] pb-6"
       >
         {usersQuery.isPending && (
           <p role="status">Memuat daftar pengguna...</p>
@@ -283,7 +285,7 @@ export function UsersPage() {
                 <Link
                   to="/users/$userId"
                   params={{ userId: user.user_id }}
-                  className="block rounded-lg outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block rounded-2xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={`Detail ${userDisplayName(user)}`}
                 >
                   <UserCard user={user} />

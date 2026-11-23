@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
-import { cn } from "cn";
+import { Plus, Trash2 } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,17 +12,24 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { isCashierEventLevel, useAuthStore } from "@/features/auth/auth-store";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+import { getCashierBranch, useAuthStore, usesCashierMode } from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import {
+  fetchTransactionDetail,
   fetchTransactions,
   transactionListParams,
 } from "@/features/sales/sales-api";
-import {
-  defaultSalesFilters,
-  type TransactionFilters,
-} from "@/features/sales/sales-filters";
-import { SalesTransactionList } from "@/features/sales/sales-transaction-list";
+import type { TransactionFilters } from "@/features/sales/sales-filters";
 import { CashSessionControl } from "@/features/cash-session/cash-session-control";
 import { fetchCashSessionReport } from "@/features/cash-session/cash-session-api";
 import {
@@ -31,22 +37,34 @@ import {
   refreshCashSessionData,
   useCashSession,
 } from "@/features/cash-session/cash-session-query";
-import { orderTotal, useOrderStore } from "./order-store";
 import { OrderItemRow } from "./order-item-row";
-import { OrderNoteField } from "./order-note-field";
 import { useOrderProducts } from "./order-products";
-import { PayOrderButton } from "./order-summary";
+import { QuantityButtons } from "./order-quantity-buttons";
+import { orderOwner, pendingOrderDraft, useOrderStore } from "./order-store";
 import { resolvePendingTransaction } from "./payment-details";
+import { changePendingQuantity, pendingQuantityLimit, usePendingOrderEdit } from "./pending-order-edit";
 
 export function CartPage({ sessionId }: { sessionId?: string }) {
   const account = useAuthStore((state) => state.session?.account);
-  const accountId = account?.account_id;
-  const branchId = account?.store?.branch_id;
+  const draftOwner = useAuthStore((state) => orderOwner(state.session));
+  const cashierBranchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
+  const branchId = cashierBranchId ?? account?.store?.branch_id;
   const queryClient = useQueryClient();
+  const catalog = useOrderProducts();
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const editPending = usePendingOrderEdit(draftOwner, !!detailId);
+  const detail = useQuery({
+    queryKey: ["transactions", "detail", account?.account_username, detailId],
+    queryFn: ({ signal }) => fetchTransactionDetail(detailId!, signal),
+    enabled: !!account && !!detailId,
+    staleTime: 0,
+    meta: { toast: false },
+  });
   const cashSession = useCashSession(!!sessionId);
   const activeSession = cashSession.data?.session;
   const matchingSession =
-    !!sessionId && activeSession?.session_id === sessionId;
+    !!sessionId && activeSession?.session_id === sessionId &&
+    (!cashierBranchId || activeSession.branch_id === cashierBranchId);
   const sessionReport = useQuery({
     queryKey: [
       "cash-session",
@@ -59,8 +77,6 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
     meta: { toast: false },
   });
   const queueFilters: TransactionFilters = {
-    ...defaultSalesFilters,
-    store: branchId ?? "",
     status: "pending",
   };
   const queue = useQuery({
@@ -68,24 +84,35 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
       "transactions",
       account?.account_username,
       transactionListParams(queueFilters, ""),
+      branchId,
     ],
-    queryFn: ({ signal }) => fetchTransactions(queueFilters, "", signal),
+    queryFn: async ({ signal }) => {
+      const queue = await fetchTransactions(queueFilters, "", signal);
+      const sales = await Promise.all(queue.sales.map((sale) => {
+        const wrongBranch = branchId && branchId !== "all" && sale.branchId && sale.branchId !== branchId;
+        if (sale.status !== "pending" || wrongBranch) return sale;
+        if (sale.items.length > 0 && (sale.branchId || (!cashierBranchId && branchId !== "all"))) return sale;
+        return fetchTransactionDetail(sale.id, signal);
+      }));
+      return { ...queue, sales };
+    },
     enabled: !!account && !!branchId,
   });
-  const isCashier = isCashierEventLevel(account?.event_level);
+  const isCashier = useAuthStore((state) => usesCashierMode(state.session));
   const orderPath = isCashier ? "/" : "/order";
   const title = isCashier ? "Antrean" : "Cart";
   const headerAction = isCashier ? (
     <CashSessionControl presentation="popover" />
   ) : undefined;
-  const { owner, orders, initialize, selectOrder, createOrder, removeOrder } =
-    useOrderStore();
-  const catalog = useOrderProducts();
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [removeId, setRemoveId] = useState<string | null>(null);
+  const hasActiveDraft = useOrderStore((state) =>
+    state.owner === draftOwner && state.orders.some(
+      ({ id, items, note }) => id === state.activeId && (items.length > 0 || !!note?.trim()),
+    ),
+  );
   const [cancelId, setCancelId] = useState<string | null>(null);
+  const cancelAfterDetail = useRef<string | null>(null);
   const cancelPending = useMutation({
-    mutationFn: (id: string) => resolvePendingTransaction(id),
+    mutationFn: (id: string) => resolvePendingTransaction(id, undefined, cashierBranchId),
     onSuccess: () => {
       setCancelId(null);
       toast.success("Pesanan dibatalkan.");
@@ -97,11 +124,6 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
     },
     meta: { toast: false },
   });
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (accountId) initialize(accountId);
-  }, [accountId, initialize]);
-  const removedOrder = orders.find((order) => order.id === removeId);
   const pendingIds = new Set(
     sessionReport.data?.session.pending_ids ?? activeSession?.pending_ids ?? [],
   );
@@ -110,7 +132,9 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   }
   const visibleQueue = (queue.data?.sales ?? []).filter(
     (sale) =>
-      sale.status === "pending" && (!sessionId || pendingIds.has(sale.id)),
+      sale.status === "pending" &&
+      (!branchId || branchId === "all" || sale.branchId === branchId || (!cashierBranchId && !sale.branchId)) &&
+      (!sessionId || pendingIds.has(sale.id)),
   );
   const queueLoading =
     queue.isPending ||
@@ -120,16 +144,16 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   const sessionUnavailable =
     !!sessionId && (!matchingSession || sessionReport.isError);
   const showQueue = queueReady && !sessionUnavailable;
-  if (!accountId || owner !== accountId)
-    return (
-      <PageLayout title={title} headerAction={headerAction}>
-        <p role="status">Memuat pesanan...</p>
-      </PageLayout>
-    );
+
+  function openCancel(id: string) {
+    cancelPending.reset();
+    setCancelId(id);
+  }
+
   return (
-    <PageLayout title={title} headerAction={headerAction}>
+    <PageLayout title={title} headerAction={headerAction} wide>
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="bento-surface flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
           <h2 className="text-sm font-semibold">
             Antrean pesanan
             {queue.data &&
@@ -137,22 +161,16 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
               ` (${visibleQueue.length})`}
           </h2>
           {!sessionId && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                createOrder();
-                void navigate({ to: orderPath });
-              }}
-            >
-              <Plus aria-hidden="true" />
-              Pesanan baru
+            <Button asChild size="sm">
+              <Link to={orderPath}>
+                {!hasActiveDraft && <Plus aria-hidden="true" />}
+                {hasActiveDraft ? "Lanjutkan pesanan" : "Pesanan baru"}
+              </Link>
             </Button>
           )}
         </div>
         {sessionId && (
-          <div className="space-y-2 rounded-lg border p-3 text-sm">
+          <div className="bento-surface flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
             <p>Pesanan yang belum dibayar untuk tutup buku.</p>
             <Button asChild variant="outline">
               <Link to="/sesi-kas" search={{ close: true, session: sessionId }}>
@@ -204,170 +222,120 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
           </div>
         )}
         {showQueue && visibleQueue.length > 0 && (
-          <SalesTransactionList
-            sales={visibleQueue}
-            queue
-            renderActions={(sale) => (
-              <div className="mt-2 mb-3 grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto min-h-9 whitespace-normal py-2"
-                  onClick={() => {
-                    cancelPending.reset();
-                    setCancelId(sale.id);
-                  }}
-                >
-                  Batalkan pesanan
-                </Button>
-                <Button asChild>
-                  <Link
-                    to="/payment/$orderId"
-                    params={{ orderId: sale.id }}
-                    search={{ pending: true, session: sessionId }}
-                  >
-                    Bayar
-                  </Link>
-                </Button>
-              </div>
-            )}
-          />
+          <ul className="space-y-3">
+            {visibleQueue.map((sale) => {
+              const order = pendingOrderDraft(sale);
+              const productBranch = sale.branchId ?? branchId;
+              const modifying = editPending.isPending || cancelPending.isPending;
+              const itemCount = sale.totalItems ?? order.items.reduce((sum, item) => sum + item.quantity, 0);
+              const total = formatCurrency(sale.total);
+              const selected = detail.data?.id === sale.id ? detail.data : undefined;
+              const editable = selected?.status === "pending" && (!cashierBranchId || selected.branchId === cashierBranchId) && !detail.isError;
+              const drawerOrder = selected ? pendingOrderDraft(selected) : order;
+              return (
+                <li key={sale.id} className="bento-surface overflow-hidden">
+                  <Drawer open={detailId === sale.id} dismissible={!modifying}
+                    onOpenChange={(open) => setDetailId(open ? sale.id : null)}>
+                    <DrawerTrigger asChild>
+                      <button type="button" aria-label={`Detail pesanan ${order.name}, ${itemCount} item, ${total}`}
+                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{order.name}</span>
+                          <span className="mt-1 block text-xs text-muted-foreground">{itemCount} item</span>
+                        </span>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums">{total}</span>
+                      </button>
+                    </DrawerTrigger>
+                    <DrawerContent
+                      className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+                      onCloseAutoFocus={(event) => {
+                        if (cancelAfterDetail.current === sale.id) {
+                          event.preventDefault();
+                          cancelAfterDetail.current = null;
+                          openCancel(sale.id);
+                        }
+                      }}
+                    >
+                      <DrawerHeader className="shrink-0">
+                        <DrawerTitle>Detail pesanan</DrawerTitle>
+                        <DrawerDescription>{order.name}</DrawerDescription>
+                      </DrawerHeader>
+                      <div className="min-h-0 overflow-y-auto px-4 pb-4">
+                        {detail.isPending && <p role="status" className="py-3 text-muted-foreground">Memuat detail pesanan...</p>}
+                        {detail.isError && <div className="space-y-2 py-3">
+                          <p role="alert">{detail.error.message}</p>
+                          <Button type="button" variant="outline" size="sm" onClick={() => void detail.refetch()}>Coba lagi</Button>
+                        </div>}
+                        {selected && !editable && !detail.isError && (
+                          <p role="status" className="py-3 text-muted-foreground">Pesanan ini sudah tidak bisa diedit.</p>
+                        )}
+                        <ul className="divide-y">
+                          {drawerOrder.items.map((item) => {
+                            const id = item.product.id;
+                            const product = catalog.data?.products.find((entry) => entry.id === id && entry.branchId === productBranch);
+                            return <OrderItemRow key={item.key} item={item} quantityControl={
+                              <QuantityButtons title={item.product.title} quantity={item.quantity}
+                                canIncrease={item.quantity < pendingQuantityLimit(drawerOrder, id, product)} disabled={modifying || !editable}
+                                onChange={(delta) => {
+                                  if (!selected || !editable) return;
+                                  const updated = changePendingQuantity(drawerOrder, drawerOrder, id, item.quantity + delta, product);
+                                  if (!updated.items.length) {
+                                    cancelAfterDetail.current = sale.id;
+                                    setDetailId(null);
+                                    return;
+                                  }
+                                  if (updated !== drawerOrder) editPending.mutate({ order: updated, transaction: selected }, {
+                                    onError: (error) => toast.error(error.message),
+                                  });
+                                }} />
+                            } />;
+                          })}
+                        </ul>
+                      </div>
+                      <DrawerFooter className="shrink-0 border-t">
+                        <div className="grid grid-cols-2 gap-2">
+                          <DrawerClose asChild>
+                            <Button type="button" variant="outline" disabled={modifying}>Tutup</Button>
+                          </DrawerClose>
+                          {(modifying || !editable) && <Button type="button" disabled>Tambah produk</Button>}
+                          {!modifying && editable && (
+                            <Button asChild>
+                              <Link to={orderPath} search={{ edit: sale.id, session: sessionId }}>
+                                <Plus aria-hidden="true" /> Tambah produk
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </DrawerFooter>
+                    </DrawerContent>
+                  </Drawer>
+                  {order.note && <p className="px-4 pb-3 text-sm break-words whitespace-pre-wrap">{order.note}</p>}
+                  <div className="grid grid-cols-2 gap-2 border-t p-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="whitespace-normal"
+                      disabled={modifying}
+                      onClick={() => openCancel(sale.id)}
+                    >
+                      <Trash2 aria-hidden="true" /> Batalkan pesanan
+                    </Button>
+                    <Button asChild={!modifying} disabled={modifying}>
+                      {modifying ? "Bayar" : (
+                        <Link to="/payment/$orderId" params={{ orderId: sale.id }} search={{ pending: true, session: sessionId }}>
+                          Bayar
+                        </Link>)}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
         {showQueue && visibleQueue.length === 0 && (
           <p className="py-5 text-center text-sm text-muted-foreground">
             Belum ada antrean pesanan.
           </p>
-        )}
-        {!sessionId &&
-          orders.some(
-            ({ items, note }) => items.length > 0 || note?.trim(),
-          ) && <h2 className="text-sm font-semibold">Draft pesanan</h2>}
-        {!sessionId &&
-          catalog.isError &&
-          !catalog.data &&
-          orders.some(({ items }) => items.length > 0) && (
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <p role="alert" className="text-destructive">
-                Gagal memuat stok produk.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                loading={catalog.isFetching}
-                onClick={() => void catalog.refetch()}
-              >
-                Coba lagi
-              </Button>
-            </div>
-          )}
-        {!sessionId && (
-          <ul className="space-y-3">
-            {orders
-              .filter(({ items, note }) => items.length > 0 || note?.trim())
-              .map((order) => {
-                const open = expanded[order.id] ?? true;
-                const count = order.items.reduce(
-                  (sum, item) => sum + item.quantity,
-                  0,
-                );
-                return (
-                  <li key={order.id}>
-                    <section
-                      className="overflow-hidden rounded-xl border bg-background"
-                      aria-label={order.name.trim() || "Pesanan"}
-                    >
-                      <div className="flex items-center pr-2">
-                        <h3 className="min-w-0 flex-1">
-                          <button
-                            type="button"
-                            aria-expanded={open}
-                            aria-controls={`order-${order.id}`}
-                            className="flex w-full items-center justify-between gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                            onClick={() =>
-                              setExpanded((state) => ({
-                                ...state,
-                                [order.id]: !open,
-                              }))
-                            }
-                          >
-                            <ChevronDown
-                              className={cn(
-                                "size-4 shrink-0 text-muted-foreground transition-transform",
-                                open ? "rotate-180" : "",
-                              )}
-                              aria-hidden="true"
-                            />
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-semibold">
-                                {order.name.trim() || "Pesanan"}
-                              </span>
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                {count} item
-                              </span>
-                            </span>
-                            <span className="ml-auto shrink-0 text-sm font-semibold tabular-nums">
-                              {formatCurrency(orderTotal(order))}
-                            </span>
-                          </button>
-                        </h3>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="shrink-0 text-destructive"
-                          aria-label={`Hapus ${order.name}`}
-                          title="Hapus antrean"
-                          onClick={() => setRemoveId(order.id)}
-                        >
-                          <Trash2 aria-hidden="true" />
-                        </Button>
-                      </div>
-                      <div
-                        id={`order-${order.id}`}
-                        hidden={!open}
-                        className="space-y-3 border-t px-4 py-3"
-                      >
-                        {order.items.length ? (
-                          <ul className="divide-y">
-                            {order.items.map((item) => (
-                              <OrderItemRow
-                                key={item.key}
-                                orderId={order.id}
-                                item={item}
-                                catalogProduct={catalog.data?.byKey.get(
-                                  item.key,
-                                )}
-                              />
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="py-5 text-center text-sm text-muted-foreground">
-                            Pesanan belum memiliki produk.
-                          </p>
-                        )}
-                      </div>
-                      <div className="border-t px-4 py-3">
-                        <OrderNoteField order={order} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 border-t p-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            selectOrder(order.id);
-                            void navigate({ to: orderPath });
-                          }}
-                        >
-                          Tambah
-                        </Button>
-                        <PayOrderButton order={order} label="proses" />
-                      </div>
-                    </section>
-                  </li>
-                );
-              })}
-          </ul>
         )}
       </div>
       <Dialog
@@ -408,40 +376,6 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
               }}
             >
               Batalkan pesanan
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!removedOrder}
-        onOpenChange={(open) => {
-          if (!open) setRemoveId(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Hapus pesanan?</DialogTitle>
-            <DialogDescription>
-              {removedOrder?.name} beserta isinya akan dihapus dari antrean.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setRemoveId(null)}
-            >
-              Batal
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                if (removeId) removeOrder(removeId);
-                setRemoveId(null);
-              }}
-            >
-              Hapus pesanan
             </Button>
           </div>
         </DialogContent>

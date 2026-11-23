@@ -2,18 +2,46 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Product } from '../products/sample-products'
 import { getProductPricing } from '../products/product-pricing'
-import { useAuthStore } from '../auth/auth-store'
+import { getCashierBranch, useAuthStore, type AuthSession } from '../auth/auth-store'
+import type { Sale } from '../sales/sales-summary'
 
 export interface OrderLine { key: string; product: Product; quantity: number; unitPrice: number }
 export interface OrderDraft { id: string; name: string; items: OrderLine[]; note?: string }
 export const productKey = (product: Product) => JSON.stringify([product.id, product.storeId ?? '', product.branchId ?? ''])
 export const orderTotal = (order: OrderDraft) => order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
 
-interface OrderState {
+export function pendingOrderDraft(sale: Sale): OrderDraft {
+  return {
+    id: sale.id, name: sale.id, note: sale.note,
+    items: sale.items.map((item, index) => {
+      let discountType = 'Tanpa diskon'
+      if (item.discountType === 'percent') discountType = 'Persentase (%)'
+      if (item.discountType === 'fixed') discountType = 'Nominal'
+      return {
+        key: `${item.productId}-${index}`,
+        quantity: item.quantity,
+        unitPrice: item.quantity && item.lineTotal !== undefined ? item.lineTotal / item.quantity : item.unitPrice ?? 0,
+        product: {
+          id: item.productId, title: item.title, price: item.unitPrice ?? 0, category: item.category ?? '',
+          image: '', photo: item.image ?? '', store: sale.store, discount: item.discount ?? 0,
+          discountType, stock: 0, description: item.description ?? '', active: true,
+        },
+      }
+    }),
+  }
+}
+
+export function orderOwner(session: AuthSession | null) {
+  const accountId = session?.account.account_id
+  const branch = getCashierBranch(session)
+  return branch ? JSON.stringify([accountId, branch.id]) : accountId
+}
+
+type OrderDrafts = { orders: OrderDraft[]; activeId: string | null; nextNumber: number }
+
+interface OrderState extends OrderDrafts {
   owner: string | null
-  orders: OrderDraft[]
-  activeId: string | null
-  nextNumber: number
+  savedDrafts: [string, OrderDrafts][]
   initialize: (owner: string) => void
   createOrder: () => string
   selectOrder: (id: string) => void
@@ -24,9 +52,16 @@ interface OrderState {
 }
 
 export const useOrderStore = create<OrderState>()(persist((set, get) => ({
-  owner: null, orders: [], activeId: null, nextNumber: 1,
+  owner: null, orders: [], activeId: null, nextNumber: 1, savedDrafts: [],
   initialize: (owner) => {
-    if (get().owner !== owner) set({ owner, orders: [], activeId: null, nextNumber: 1 })
+    const current = get()
+    if (current.owner !== owner) {
+      const drafts = new Map(current.savedDrafts)
+      if (current.owner) drafts.set(current.owner, { orders: current.orders, activeId: current.activeId, nextNumber: current.nextNumber })
+      const next = drafts.get(owner) ?? { orders: [], activeId: null, nextNumber: 1 }
+      drafts.delete(owner)
+      set({ owner, ...next, savedDrafts: [...drafts] })
+    }
     if (get().orders.some((order) => !/^Antrian #\d+$/.test(order.name))) {
       set((state) => ({ orders: state.orders.map((order, index) => ({ ...order, name: `Antrian #${index + 1}` })), nextNumber: Math.max(state.nextNumber, state.orders.length + 1) }))
     }
@@ -82,9 +117,11 @@ export const useOrderStore = create<OrderState>()(persist((set, get) => ({
   },
 }), {
   name: 'kasirv2.order-drafts', storage: createJSONStorage(() => sessionStorage), version: 1,
-  partialize: ({ owner, orders, activeId, nextNumber }) => ({ owner, orders, activeId, nextNumber }),
+  partialize: ({ owner, orders, activeId, nextNumber, savedDrafts }) => ({ owner, orders, activeId, nextNumber, savedDrafts }),
 }))
 
 useAuthStore.subscribe((state, previous) => {
-  if (!state.session && previous.session) useOrderStore.setState({ owner: null, orders: [], activeId: null, nextNumber: 1 })
+  if (previous.session && previous.session.account.account_id !== state.session?.account.account_id) {
+    useOrderStore.setState({ owner: null, orders: [], activeId: null, nextNumber: 1, savedDrafts: [] })
+  }
 })

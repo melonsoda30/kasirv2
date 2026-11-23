@@ -7,8 +7,12 @@ Axios, Lucide React, clsx, Zod, TanStack Form, dan Zustand.
 npm ci
 npm run dev
 npm run build
+npm run build-staging
 npm run lint
 ```
+
+Build staging membaca `.env.staging` dan menghasilkan bundle di `dist`.
+Nilai awal `.env.staging` sama dengan `.env.example`.
 
 Geist di-host lokal lewat Fontsource dan menjadi font utama. Tailwind aktif
 melalui plugin Vite dan src/index.css. Ikon tersedia dari lucide-react.

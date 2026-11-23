@@ -1,4 +1,4 @@
-import { request } from "../../lib/api";
+import { isEmptyListResponse, request } from "../../lib/api";
 
 export interface Category {
   category_id: number | string | null;
@@ -24,6 +24,7 @@ export async function fetchCategories(signal?: AbortSignal): Promise<Category[]>
     signal,
   });
 
+  if (isEmptyListResponse(response)) return [];
   if (
     !Array.isArray(response) &&
     response?.status &&

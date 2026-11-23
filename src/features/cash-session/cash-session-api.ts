@@ -1,6 +1,6 @@
 import { isAxiosError } from 'axios'
 import { z } from 'zod'
-import { request } from '@/lib/api'
+import { isEmptyListResponse, request } from '@/lib/api'
 
 const amount = z.coerce.number().finite()
 const text = z.string().nullish().transform((value) => value ?? '')
@@ -66,13 +66,15 @@ export class CashSessionError extends Error {
 
 async function shiftRequest<T>(action: string, schema: z.ZodType<T>, options: {
   fields?: Record<string, string>; filters?: Record<string, string>; signal?: AbortSignal;
+  emptyData?: T;
 } = {}) {
-  const { fields, filters, signal } = options
+  const { fields, filters, signal, emptyData } = options
   try {
     const raw = await request<unknown>({
       url: '/transaction/shift.php', method: fields ? 'POST' : 'GET', signal,
       params: { action, ...filters }, data: fields && new URLSearchParams(fields),
     })
+    if (emptyData !== undefined && isEmptyListResponse(raw)) return { data: emptyData, warning: undefined }
     const response = responseSchema.safeParse(raw)
     if (response.success && response.data.status !== 'success') {
       const pending = pendingIdsSchema.safeParse(raw)
@@ -96,9 +98,9 @@ async function shiftRequest<T>(action: string, schema: z.ZodType<T>, options: {
 export const fetchCurrentCashSession = (signal?: AbortSignal) =>
   shiftRequest('current_session', currentSchema, { signal }).then(({ data }) => data)
 export const fetchHandoverCandidates = (signal?: AbortSignal) =>
-  shiftRequest('handover_candidates', z.array(z.object({ id: identifier, fullname: z.string() })), { signal }).then(({ data }) => data)
+  shiftRequest('handover_candidates', z.array(z.object({ id: identifier, fullname: z.string() })), { signal, emptyData: [] }).then(({ data }) => data)
 export const fetchPendingHandovers = (signal?: AbortSignal) =>
-  shiftRequest('handover_pending', z.array(sessionSchema), { signal }).then(({ data }) => data)
+  shiftRequest('handover_pending', z.array(sessionSchema), { signal, emptyData: [] }).then(({ data }) => data)
 export const openCashSession = (fields: { shift_code: string; opening_cash: string; notes: string; handover_session_id?: string }) =>
   shiftRequest('open_session', sessionSchema, { fields })
 export const closeCashSession = (fields: { session_id: string; closing_cash: string; close_notes: string }, force = false) =>
@@ -106,8 +108,12 @@ export const closeCashSession = (fields: { session_id: string; closing_cash: str
 export const handoverCashSession = (fields: { session_id: string; to_user: string; amount: string; notes: string }) =>
   shiftRequest('handover', z.object({ carry_over_note: text }), { fields })
 
+const cashSessionList = z.object({ sessions: z.array(sessionSchema), count: amount.optional() })
+  .refine(({ sessions, count }) => sessions.length === 0 || count !== undefined)
+  .transform(({ sessions, count }) => ({ sessions, count: count ?? 0 }))
+
 export const fetchCashSessions = (filters: Record<string, string>, signal?: AbortSignal) =>
-  shiftRequest('list_session', z.object({ sessions: z.array(sessionSchema), count: amount }), { filters, signal }).then(({ data }) => data)
+  shiftRequest('list_session', cashSessionList, { filters, signal, emptyData: { sessions: [], count: 0 } }).then(({ data }) => data)
 export const fetchCashSessionReport = (sessionId: string, signal?: AbortSignal) =>
   shiftRequest('session_report', z.object({
     session: sessionSchema,
@@ -117,6 +123,7 @@ export const fetchCashSessionReport = (sessionId: string, signal?: AbortSignal) 
 
 export async function fetchCashSessionExport(filters: Record<string, string>) {
   const response = await request<unknown>({ url: '/download.php', method: 'GET', params: { action: 'export_session', ...filters } })
+  if (isEmptyListResponse(response)) return []
   const parsed = z.object({ status: z.literal('success'), data: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))) }).safeParse(response)
   if (!parsed.success) throw new CashSessionError('Gagal mengunduh laporan shift.')
   return parsed.data.data

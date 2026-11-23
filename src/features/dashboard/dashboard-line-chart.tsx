@@ -1,4 +1,5 @@
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { cn } from "cn";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { formatCurrency } from "@/lib/currency";
 import type { DashboardChartData } from "./dashboard-api";
@@ -9,9 +10,10 @@ const compactCurrency = new Intl.NumberFormat("id-ID", {
 const colors = ["#003994", "#047857", "#b45309"];
 const hexColor = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
 
-export function DashboardLineChart({ chart, description }: {
+export function DashboardLineChart({ chart, description, stretch = false }: {
   chart: DashboardChartData;
   description: string;
+  stretch?: boolean;
 }) {
   const { labels, datasets } = chart;
   if (!labels.length || !datasets.some(({ data }) => data.length)) {
@@ -33,7 +35,8 @@ export function DashboardLineChart({ chart, description }: {
   }));
 
   return (
-    <ChartContainer config={config} role="group" aria-label={description} className="aspect-auto h-48 w-full sm:h-56">
+    <ChartContainer config={config} role="group" aria-label={description}
+      className={cn("aspect-auto h-48 w-full sm:h-56", stretch && "md:h-auto md:min-h-64 md:flex-1")}>
       <LineChart accessibilityLayer data={rows} margin={{ top: 8, right: 12 }}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="date" axisLine={false} tickLine={false} tickMargin={8} minTickGap={16} interval="preserveStartEnd" />

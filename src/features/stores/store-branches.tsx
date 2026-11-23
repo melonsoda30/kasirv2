@@ -70,7 +70,7 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
         </Button>
       </div>
       {branches.length ? (
-        <ul className="divide-y overflow-hidden rounded-xl border bg-background">
+        <ul className="bento-surface divide-y overflow-hidden">
           {branches.map((branch) => (
             <li key={branch.id} className="flex items-center gap-2 px-4 py-3">
               <p className="min-w-0 flex-1 text-sm font-medium">{branch.name}</p>
@@ -88,7 +88,7 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
           ))}
         </ul>
       ) : (
-        <p className="rounded-xl border bg-background p-4 text-sm text-muted-foreground">Belum ada cabang.</p>
+        <p className="bento-surface p-4 text-sm text-muted-foreground">Belum ada cabang.</p>
       )}
 
       <Drawer open={savingBranch} dismissible={!save.isPending} onOpenChange={(open) => { if (!open) closeEditor(); }}>

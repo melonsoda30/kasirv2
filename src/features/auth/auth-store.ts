@@ -44,10 +44,25 @@ export function isCashierEventLevel(eventLevel: string | undefined) {
 
 export interface AuthSession {
   account: Account
+  cashierBranchId?: string
   token: string
   expiresAt: number
   sessionId?: string
   refresh?: { token: string; expiresAt: number }
+}
+
+export function usesCashierMode(session: AuthSession | null) {
+  return isCashierEventLevel(session?.account.event_level) || !!getCashierBranch(session)
+}
+
+export function getCashierBranches(store: Account['store']) {
+  return getAccountBranches(store).filter(({ id }) =>
+    id && id !== 'all' && (store?.all_branches || id === store?.branch_id))
+}
+
+export function getCashierBranch(session: AuthSession | null) {
+  if (!session?.cashierBranchId || !isAdminAccount(session.account)) return undefined
+  return getCashierBranches(session.account.store).find(({ id }) => id === session.cashierBranchId)
 }
 
 const key = 'kasirv2.auth'
@@ -70,7 +85,8 @@ function readSession(): AuthSession | null {
 export const useAuthStore = create<{
   session: AuthSession | null
   setSession: (session: AuthSession, remember: boolean) => void
-  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account'>) => boolean
+  setCashierBranch: (branchId?: string) => boolean
+  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account' | 'cashierBranchId'>) => boolean
   clearSession: () => void
   updateAccount: (account: Partial<Account>) => void
 }>((set, get) => ({
@@ -90,10 +106,26 @@ export const useAuthStore = create<{
     ;(remember ? localStorage : sessionStorage).setItem(key, JSON.stringify(session))
     set({ session })
   },
+  setCashierBranch: (branchId) => {
+    const current = get().session
+    if (!current || !isAdminAccount(current.account)) return false
+    const session = { ...current, cashierBranchId: branchId }
+    if (branchId !== undefined && !getCashierBranch(session)) return false
+    try {
+      const storage = localStorage.getItem(key) ? localStorage : sessionStorage
+      storage.setItem(key, JSON.stringify(session))
+    } catch { /* Keep the current mode if storage is unavailable. */ }
+    set({ session })
+    return true
+  },
   replaceSessionTokens: (previousToken, tokens) => {
     const { session, setSession } = get()
     if (!session || session.token !== previousToken) return false
-    setSession({ account: session.account, ...tokens }, !!localStorage.getItem(key))
+    setSession({
+      account: session.account,
+      ...(session.cashierBranchId && { cashierBranchId: session.cashierBranchId }),
+      ...tokens,
+    }, !!localStorage.getItem(key))
     return true
   },
   clearSession: () => {

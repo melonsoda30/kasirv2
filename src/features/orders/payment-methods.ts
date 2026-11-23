@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { useAuthStore } from "@/features/auth/auth-store";
 import { paymentImageUrl } from "@/features/settings/store-settings-query";
-import { request } from "@/lib/api";
+import { isEmptyListResponse, request } from "@/lib/api";
 import type { PaymentReceipt } from "./payment-details";
 
 const paymentRecord = z.object({
@@ -25,11 +25,20 @@ type PaymentMethod = PaymentReceipt["method"] & {
   missingFee: boolean;
 };
 
+export function findRecordedPaymentMethod(methods: readonly PaymentMethod[], recorded?: string) {
+  const value = recorded?.trim().toLowerCase();
+  return methods.find(({ code }) => code.toLowerCase() === value) ??
+    methods.find(({ title }) => title.trim().toLowerCase() === value);
+}
+
 export const paymentMethodsKey = (storeId?: string) =>
   ["payment-methods", storeId] as const;
 
+type PaymentMethodScope = "active" | "all";
+
 export async function fetchPaymentMethods(
   signal?: AbortSignal,
+  scope: PaymentMethodScope = "active",
 ): Promise<PaymentMethod[]> {
   const response = await request<{
     status?: string;
@@ -41,6 +50,7 @@ export async function fetchPaymentMethods(
     params: { action: "list_payment" },
     signal,
   });
+  if (isEmptyListResponse(response)) return [];
   if (response?.status !== "success")
     throw new Error(response?.msg || "Gagal memuat metode pembayaran.");
   const parsed = paymentList.safeParse(response.data);
@@ -49,7 +59,7 @@ export async function fetchPaymentMethods(
 
   return parsed.data.flatMap<PaymentMethod>((record) => {
     const hasFee = !!record.fee_code;
-    if (!record.is_active || (hasFee && record.fee_found && !record.fee_active))
+    if (scope === "active" && (!record.is_active || (hasFee && record.fee_found && !record.fee_active)))
       return [];
 
     const type = record.payment_type.trim().toLowerCase();
@@ -77,13 +87,14 @@ export async function fetchPaymentMethods(
   });
 }
 
-export function usePaymentMethods() {
+export function usePaymentMethods(enabled = true, refetchOnMount?: "always", scope: PaymentMethodScope = "active") {
   const account = useAuthStore((state) => state.session?.account);
   const storeId = account?.store?.id || account?.event_id;
   return useQuery({
-    queryKey: paymentMethodsKey(storeId),
-    queryFn: ({ signal }) => fetchPaymentMethods(signal),
-    enabled: !!account,
+    queryKey: scope === "all" ? [...paymentMethodsKey(storeId), scope] : paymentMethodsKey(storeId),
+    queryFn: ({ signal }) => fetchPaymentMethods(signal, scope),
+    enabled: enabled && !!account,
+    refetchOnMount,
     meta: { toast: false },
   });
 }

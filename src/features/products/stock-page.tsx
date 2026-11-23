@@ -42,7 +42,7 @@ export function StockPage() {
   );
 
   return (
-    <PageLayout title="Stok">
+    <PageLayout title="Stok" wide>
       {stock.isPending && <p role="status">Memuat stok produk...</p>}
       {stock.isError && (
         <div className="space-y-2">
@@ -61,7 +61,7 @@ export function StockPage() {
         <p>Belum ada data stok produk.</p>
       )}
       {!!stock.data?.length && (
-        <ul className="space-y-3">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {stock.data.map((item) => (
             <li
               key={JSON.stringify([

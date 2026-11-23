@@ -1,4 +1,4 @@
-import { request } from "../../lib/api";
+import { isEmptyListResponse, request } from "../../lib/api";
 
 export interface StoreRecord {
   store_id: string;
@@ -21,6 +21,7 @@ export async function fetchStore(signal?: AbortSignal): Promise<StoreRecord[]> {
     params: { action: "list_store", status: "active" },
     signal,
   });
+  if (isEmptyListResponse(response)) return [];
   if (response?.status && response.status !== "success") {
     throw new Error(response.msg || "Gagal memuat daftar store.");
   }

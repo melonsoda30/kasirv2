@@ -8,7 +8,7 @@ function StoreSummary({ store }: { store: AdminStore }) {
   return (
     <section
       aria-labelledby="store-heading"
-      className="flex items-start gap-3 rounded-xl border bg-background p-4"
+      className="bento-surface flex items-start gap-3 p-4"
     >
       <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted">
         <Store className="size-6 text-muted-foreground" aria-hidden="true" />

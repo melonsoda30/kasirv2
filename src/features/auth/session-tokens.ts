@@ -7,7 +7,7 @@ export interface SessionTokenResponse {
   refresh?: { token: string; expires_in: number };
 }
 
-export function readSessionTokens(payload: SessionTokenResponse): Omit<AuthSession, "account"> {
+export function readSessionTokens(payload: SessionTokenResponse): Omit<AuthSession, "account" | "cashierBranchId"> {
   const { access, refresh } = payload;
   const token = access ? access.token : payload.token;
   if (typeof token !== "string" || !token.trim()) {

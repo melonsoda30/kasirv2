@@ -1,4 +1,4 @@
-import { request } from "@/lib/api";
+import { isEmptyListResponse, request } from "@/lib/api";
 
 interface StockHistoryEntry {
   at: string;
@@ -36,6 +36,7 @@ export async function fetchProductStock(signal: AbortSignal) {
     params: { action: "list_stock" },
     signal,
   });
+  if (isEmptyListResponse(response)) return [];
   if (
     !Array.isArray(response) &&
     response?.status &&

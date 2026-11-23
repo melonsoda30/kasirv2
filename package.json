@@ -6,6 +6,7 @@
   "scripts": {
     "test:auth": "node --test tests/auth.test.mjs",
     "dev": "vite --host",
+    "build-staging": "npm run routes:generate && tsc -b && vite build --mode staging",
     "build": "npm run routes:generate && tsc -b && vite build",
     "routes:generate": "tsr generate",
     "lint": "eslint .",

@@ -77,7 +77,7 @@ export function TrendingProducts({ trending }: { trending: TrendingProductsData 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <label id={`${id}-label`} htmlFor={id} className="shrink-0 text-sm font-medium">Hari penjualan</label>
         <SelectCombobox id={id} aria-labelledby={`${id}-label`} options={options} value={day} onChange={setSelectedDay}
           searchable={false} className="w-32" />

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/auth-store";
-import { request } from "@/lib/api";
+import { isEmptyListResponse, request } from "@/lib/api";
 
 export interface UserRecord {
   user_store_name: string;
@@ -68,6 +68,7 @@ export async function fetchUsers(signal?: AbortSignal): Promise<UserRecord[]> {
     params: { action: "list_user" },
     signal,
   });
+  if (isEmptyListResponse(response)) return [];
   if (response?.status !== "success" || !Array.isArray(response.data)) {
     throw new Error(response?.msg || "Gagal memuat daftar pengguna.");
   }
@@ -116,12 +117,12 @@ function useUsersQueryKey() {
   return ["admin", "users", username] as const;
 }
 
-export function useUsers() {
+export function useUsers(enabled = true) {
   const queryKey = useUsersQueryKey();
   return useQuery({
     queryKey,
     queryFn: ({ signal }) => fetchUsers(signal),
-    enabled: !!queryKey[2],
+    enabled: enabled && !!queryKey[2],
     meta: { toast: false },
   });
 }

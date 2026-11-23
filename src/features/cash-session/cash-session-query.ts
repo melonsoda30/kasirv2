@@ -18,8 +18,9 @@ export function useCashSession(enabled = true) {
   return useQuery({ ...cashSessionOptions(account), enabled: !!account && enabled })
 }
 
-export function cashSessionAllowsSales(current: Awaited<ReturnType<typeof fetchCurrentCashSession>> | undefined) {
-  return !!current && (!current.use_session || current.session?.status === 'open')
+export function cashSessionAllowsSales(current: Awaited<ReturnType<typeof fetchCurrentCashSession>> | undefined, branchId?: string) {
+  return !!current && (!current.use_session || (current.session?.status === 'open' &&
+    (!branchId || current.session.branch_id === branchId)))
 }
 
 export function refreshCashSessionData(queryClient: QueryClient) {

@@ -115,7 +115,7 @@ function EditProfileForm({ account }: { account: Account }) {
 
   return (
     <PageLayout title="Edit Profil" prevLink="/profil">
-      <form onSubmit={submit} aria-busy={busy}>
+      <form onSubmit={submit} className="bento-surface p-4 sm:p-5" aria-busy={busy}>
         <fieldset disabled={busy} className="min-w-0 space-y-5">
           <ImageInput
             id="profile-image"

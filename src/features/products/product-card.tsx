@@ -43,9 +43,9 @@ export function ProductImage({
   return (
     <div
       className={cn(
-        "relative flex items-center justify-center overflow-hidden  aspect-square rounded",
-        !detail && "bg-muted",
-        detail && "p-4",
+        "relative flex aspect-square items-center justify-center overflow-hidden",
+        !detail && "rounded-t-[calc(var(--radius-2xl)-1px)] bg-muted",
+        detail && "rounded p-4",
       )}
     >
       {!showImage && (
@@ -144,11 +144,11 @@ export function ProductCard({
       <DrawerTrigger asChild>
         <button
           type="button"
-          className="w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-full w-full cursor-pointer flex-col rounded-2xl text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={`Lihat detail ${product.title}`}
         >
-          <ProductImage product={product} />
-          <div className="space-y-1 pt-2">
+          <div className="w-full"><ProductImage product={product} /></div>
+          <div className="flex w-full flex-1 flex-col justify-between gap-1 p-3">
             <h2 className="text-sm leading-5 font-medium text-foreground">
               {product.title}
             </h2>

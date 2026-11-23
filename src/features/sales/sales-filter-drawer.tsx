@@ -12,20 +12,25 @@ import {
   DrawerTitle,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { paymentOptions, defaultSalesFilters } from "./sales-filters";
+import type { usePaymentMethods } from "@/features/orders/payment-methods";
+import { defaultSalesFilters } from "./sales-filters";
 import type { SalesFilters } from "./sales-filters";
 
 export function SalesFilterDrawer({
   filters,
   stores,
   cashiers,
+  paymentOptions,
+  paymentMethods,
   onSave,
   hideCashier = false,
   hideStore = false,
 }: {
   filters: SalesFilters;
   stores: { value: string; label: string }[];
-  cashiers: string[];
+  cashiers: { value: string; label: string }[];
+  paymentOptions: { value: string; label: string }[];
+  paymentMethods: Pick<ReturnType<typeof usePaymentMethods>, "isPending" | "isError" | "isFetching" | "isSuccess" | "refetch">;
   onSave: (filters: SalesFilters) => void;
   hideCashier?: boolean;
   hideStore?: boolean;
@@ -59,7 +64,7 @@ export function SalesFilterDrawer({
     {
       key: "cashier",
       label: "Kasir",
-      options: cashiers.map((value) => ({ value, label: value })),
+      options: cashiers,
     },
   ] as const;
 
@@ -115,7 +120,9 @@ export function SalesFilterDrawer({
                   <legend className="text-sm font-medium">Store</legend>
                   <div className="flex flex-wrap gap-2">
                     {[{ value: 'all', label: 'Semua' }, ...options].map((option) => (
-                      <Button key={option.value} type="button" variant={draft.store === option.value ? 'default' : 'outline'}
+                      <Button key={option.value} type="button" size="sm"
+                        className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
+                        variant={draft.store === option.value ? 'default' : 'outline'}
                         aria-pressed={draft.store === option.value} onClick={() => setDraft((current) => ({ ...current, store: option.value }))}>
                         {option.label}
                       </Button>
@@ -125,22 +132,35 @@ export function SalesFilterDrawer({
               )}
               {key !== 'store' && (
                 <>
-                <label
-                  htmlFor={`sales-filter-${key}`}
-                  className="text-sm font-medium"
-                >
-                  {label}
-                </label>
-                <SelectCombobox
-                  searchable={false}
-                  id={`sales-filter-${key}`}
-                  aria-label={label}
-                  options={[{ value: "all", label: "Semua" }, ...options]}
-                  value={draft[key]}
-                  onChange={(value) =>
-                    setDraft((current) => ({ ...current, [key]: value || "all" }))
-                  }
-                />
+                  <label
+                    htmlFor={`sales-filter-${key}`}
+                    className="text-sm font-medium"
+                  >
+                    {label}
+                  </label>
+                  <SelectCombobox
+                    searchable={false}
+                    id={`sales-filter-${key}`}
+                    aria-label={label}
+                    options={[{ value: "all", label: "Semua" }, ...options]}
+                    value={draft[key]}
+                    onChange={(value) =>
+                      setDraft((current) => ({ ...current, [key]: value || "all" }))
+                    }
+                  />
+                  {key === "paymentMethod" && paymentMethods.isPending && (
+                    <p role="status" className="text-sm text-muted-foreground">Memuat metode pembayaran...</p>
+                  )}
+                  {key === "paymentMethod" && paymentMethods.isError && (
+                    <div className="flex items-center justify-between gap-2">
+                      <p role="alert" className="text-sm">Metode pembayaran gagal dimuat.</p>
+                      <Button type="button" size="sm" variant="outline" loading={paymentMethods.isFetching}
+                        onClick={() => void paymentMethods.refetch()}>Coba lagi</Button>
+                    </div>
+                  )}
+                  {key === "paymentMethod" && paymentMethods.isSuccess && !paymentOptions.length && (
+                    <p className="text-sm text-muted-foreground">Belum ada metode pembayaran.</p>
+                  )}
                 </>
               )}
             </div>

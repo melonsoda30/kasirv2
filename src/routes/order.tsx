@@ -1,12 +1,19 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { getAuthSession, isCashierEventLevel } from '@/features/auth/auth-store'
+import { getAuthSession, usesCashierMode } from '@/features/auth/auth-store'
 import { OrderPage } from '@/features/orders/order-page'
+import { pendingOrderSearch } from '@/features/orders/pending-order-edit'
 
 export const Route = createFileRoute('/order')({
-  beforeLoad: () => {
-    if (isCashierEventLevel(getAuthSession()?.account.event_level)) {
-      throw redirect({ to: '/', replace: true })
+  validateSearch: pendingOrderSearch,
+  beforeLoad: (context) => {
+    if (usesCashierMode(getAuthSession())) {
+      throw redirect({ to: '/', search: context?.search, replace: true })
     }
   },
-  component: OrderPage,
+  component: OrderRoute,
 })
+
+function OrderRoute() {
+  const { edit, session } = Route.useSearch()
+  return <OrderPage key={edit} editTrxId={edit} returnSession={session} />
+}

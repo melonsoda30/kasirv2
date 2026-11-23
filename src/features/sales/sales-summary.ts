@@ -2,15 +2,36 @@ import type { SalesFilters } from './sales-filters'
 
 export type SaleStatus = 'complete' | 'pending' | 'delete' | 'unknown'
 
+export interface SaleItem {
+  productId: string
+  title: string
+  quantity: number
+  unitPrice?: number
+  lineTotal?: number
+  image?: string
+  category?: string
+  description?: string
+  discountType?: string
+  discount?: number
+}
+
+export type SaleFee = { title: string; value: number }
+export type SaleDiscount = SaleFee & { type: 'fixed' | 'percent' }
+
 export interface Sale {
   id: string
   occurredAt: string
   store: string
   storeId?: string
+  branchId?: string
   cashier: string
   salesperson?: { id: string; name: string }
+  salesId?: string
   paymentMethod: string
   paymentCode?: string
+  paymentFee?: number
+  additionalPrices?: SaleFee[]
+  discounts?: SaleDiscount[]
   subtotal?: number
   tax?: number
   note?: string
@@ -21,7 +42,7 @@ export interface Sale {
   paid: number
   change?: number
   totalItems?: number
-  items: { productId: string; title: string; quantity: number; unitPrice?: number; image?: string; lineTotal?: number }[]
+  items: SaleItem[]
 }
 
 export interface SalesSummary {
@@ -56,7 +77,7 @@ export function summarizeSales(sales: readonly Sale[]): SalesSummary {
   let total = 0, productsSold = 0, change = 0
   for (const sale of sales) {
     total += sale.total
-    productsSold += sale.items.reduce((quantity, item) => quantity + item.quantity, 0)
+    productsSold += sale.totalItems ?? sale.items.reduce((quantity, item) => quantity + item.quantity, 0)
     change += Math.max(0, sale.paid - sale.total)
     paymentTotals[sale.paymentMethod] = (paymentTotals[sale.paymentMethod] ?? 0) + sale.total
   }

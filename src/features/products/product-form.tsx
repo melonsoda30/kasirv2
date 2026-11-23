@@ -173,7 +173,7 @@ export function ProductForm({ product }: { product?: Product }) {
     <>
       <form
         noValidate
-        className="space-y-6"
+        className="bento-surface space-y-6 p-4 sm:p-5"
         onSubmit={(event) => {
           event.preventDefault();
           event.stopPropagation();

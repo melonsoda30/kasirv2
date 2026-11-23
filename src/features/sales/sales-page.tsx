@@ -10,11 +10,14 @@ import { Button } from "@/components/ui/button";
 import { useProductStore } from "@/features/products/product-store";
 import {
   getAccountBranches,
+  getCashierBranch,
   isAdminAccount,
-  isCashierEventLevel,
   useAuthStore,
+  usesCashierMode,
 } from "@/features/auth/auth-store";
 import { CashSessionControl } from "@/features/cash-session/cash-session-control";
+import { usePaymentMethods } from "@/features/orders/payment-methods";
+import { useUsers, userDisplayName } from "@/features/users/users-api";
 import { SalesFilterDrawer } from "./sales-filter-drawer";
 import { defaultSalesFilters, salesFilterChips } from "./sales-filters";
 import { fetchTransactions, transactionListParams } from "./sales-api";
@@ -30,10 +33,14 @@ export function SalesPage({
 } = {}) {
   const account = useAuthStore((state) => state.session?.account);
   const isAdmin = isAdminAccount(account);
-  const branchId = account?.store?.branch_id;
-  const hideStore = !!userScope || !isAdmin;
-  const isCashierTransactions =
-    !userScope && isCashierEventLevel(account?.event_level);
+  const cashierMode = useAuthStore((state) => usesCashierMode(state.session));
+  const cashierBranchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
+  const branchId = cashierBranchId ?? account?.store?.branch_id;
+  const isCashierTransactions = !userScope && cashierMode;
+  const hideStore = !!userScope || !isAdmin || isCashierTransactions;
+  const users = useUsers(isAdmin && !userScope);
+  const paymentMethods = usePaymentMethods(!!account, undefined, "all");
+  const paymentOptions = (paymentMethods.data ?? []).map(({ code, title }) => ({ value: code, label: title }));
   const title = isCashierTransactions ? "Transaksi" : "Penjualan";
   const searchLabel = `Cari ${title.toLowerCase()}`;
   const [search, setSearch] = useState("");
@@ -49,10 +56,12 @@ export function SalesPage({
   const adminBranch = userScope
     ? userScope.branchId || branchId || "all"
     : filters.store;
+  const accountBranch = branchId ?? (isAdmin ? "all" : "");
+  const visibleBranch = isAdmin && !isCashierTransactions ? adminBranch : accountBranch;
   const transactionFilters = {
-    ...filters,
     cashier: userScope?.id ?? filters.cashier,
-    store: isAdmin ? adminBranch : (branchId ?? ""),
+    dateRange: filters.dateRange,
+    paymentMethod: filters.paymentMethod,
   };
   const transactions = useQuery({
     queryKey: [
@@ -65,22 +74,32 @@ export function SalesPage({
     enabled: !!account && (isAdmin || !!branchId),
   });
   const products = useProductStore((state) => state.products);
-  const visibleSales = transactions.data?.sales ?? [];
+  const sales = transactions.data?.sales ?? [];
+  const allowUnknownBranch = !!userScope || (!cashierBranchId && !account?.store?.all_branches);
+  const visibleSales = visibleBranch && visibleBranch !== "all"
+    ? sales.filter((sale) => sale.branchId === visibleBranch || (!sale.branchId && allowUnknownBranch))
+    : sales;
   const availableStores = getAccountBranches(account?.store).map(
     ({ id, name }) => ({ value: id, label: name }),
   );
-  const chips = salesFilterChips(filters, products, availableStores).filter(
+  const cashiers = (users.data ?? [])
+    .filter((user) => user.is_cashier)
+    .map((user) => ({ value: user.user_id, label: userDisplayName(user) }));
+  if (account?.account_id && cashierMode && !cashiers.some(({ value }) => value === account.account_id)) {
+    cashiers.push({ value: account.account_id, label: account.account_fullname || account.account_username });
+  }
+  const chips = salesFilterChips(filters, products, availableStores, cashiers, paymentOptions).filter(
     (chip) => !hideStore || chip.key !== "store",
   );
   const hasChips = chips.length > 0;
   const hasQuery = search.trim() !== "" || hasChips;
   const missingBranch = !!account && !isAdmin && !branchId;
-  const summary = !missingBranch && transactions.isSuccess
+  const summary = !missingBranch && transactions.isSuccess && sales.length === visibleSales.length
     ? transactions.data.summary
     : undefined;
   const toolbar = (
     <>
-      <div className="flex h-9 gap-2 px-4">
+      <div className="page-gutter flex h-9 gap-2">
         <Input
           type="search"
           aria-label={searchLabel}
@@ -93,12 +112,9 @@ export function SalesPage({
           stores={availableStores}
           hideCashier={!!userScope}
           hideStore={hideStore}
-          cashiers={[
-            ...new Set([
-              ...(filters.cashier !== "all" ? [filters.cashier] : []),
-              ...visibleSales.map((sale) => sale.cashier),
-            ]),
-          ]}
+          cashiers={cashiers}
+          paymentOptions={paymentOptions}
+          paymentMethods={paymentMethods}
           onSave={setFilters}
         />
       </div>
@@ -106,7 +122,7 @@ export function SalesPage({
         <div
           role="group"
           aria-label="Filter penjualan aktif"
-          className="mt-3 flex h-8 gap-2 overflow-x-auto px-4"
+          className="page-gutter mt-3 flex h-11 items-start gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]"
         >
           {chips.map(({ key, label }) => (
             <Button
@@ -140,7 +156,7 @@ export function SalesPage({
       )}
       {!userScope && (
         <header className="sales-toolbar sticky top-0 z-20 w-full border-b bg-background pt-[env(safe-area-inset-top)] pb-3">
-          <div className="flex h-12 items-center gap-2 px-4">
+          <div className="page-gutter flex h-12 items-center gap-2">
             <h1 className="flex-1 text-lg font-semibold">{title}</h1>
             {isCashierTransactions && <CashSessionControl presentation="popover" />}
           </div>
@@ -150,8 +166,8 @@ export function SalesPage({
       <main
         id="main-content"
         className={cn(
-          "min-w-0 flex-1 px-4 pb-6",
-          userScope && hasChips && "pt-[calc(153px+env(safe-area-inset-top)+1rem)]",
+          "page-gutter min-w-0 flex-1 pb-6",
+          userScope && hasChips && "pt-[calc(165px+env(safe-area-inset-top)+1rem)]",
           userScope && !hasChips && "pt-[calc(109px+env(safe-area-inset-top)+1rem)]",
           !userScope && "pt-4",
         )}
@@ -219,12 +235,12 @@ export function SalesPage({
               </Button>
             </div>
           )}
-          {summary && userScope && (
+          {!missingBranch && transactions.isSuccess && userScope && (
             <>
-              <Tabs.Panel value="summary">
+              <Tabs.Panel value="summary" className="flow-panel">
                 <SalesSummaryCards sales={visibleSales} summary={summary} />
               </Tabs.Panel>
-              <Tabs.Panel value="transactions">
+              <Tabs.Panel value="transactions" className="flow-panel">
                 <SalesTransactionList sales={visibleSales} />
                 {!visibleSales.length && (
                   <p className="py-12 text-center text-sm text-muted-foreground">
@@ -234,7 +250,7 @@ export function SalesPage({
               </Tabs.Panel>
             </>
           )}
-          {summary && !userScope && (
+          {!missingBranch && transactions.isSuccess && !userScope && (
             <>
               <SalesSummaryCards sales={visibleSales} summary={summary} />
               <SalesTransactionList sales={visibleSales} />

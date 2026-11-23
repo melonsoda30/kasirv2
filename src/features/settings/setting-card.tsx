@@ -68,13 +68,13 @@ export function SettingCard({
 
   return (
     <Drawer open={open} onOpenChange={changeOpen}>
-      <div className={cn(preview ? "overflow-hidden rounded-xl border bg-background" : undefined)}>
+      <div className={cn(preview && "bento-surface overflow-hidden")}>
         <DrawerTrigger asChild>
           <button
             type="button"
             className={cn(
-              "flex w-full cursor-pointer items-center gap-3 bg-background p-4 text-left text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              preview ? "border-b" : "rounded-xl border",
+              "flex w-full cursor-pointer items-center gap-3 p-4 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              preview ? "border-b" : "bento-surface",
             )}
           >
             <span className="min-w-0 flex-1">
@@ -98,7 +98,7 @@ export function SettingCard({
       </div>
       <DrawerContent
         aria-describedby={undefined}
-        className="pb-[env(safe-area-inset-bottom)]"
+        className="product-drawer pb-[env(safe-area-inset-bottom)]"
       >
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>

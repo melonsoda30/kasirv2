@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import type { Account } from "@/features/auth/auth-store";
-import { request } from "@/lib/api";
+import { isEmptyListResponse, request } from "@/lib/api";
 
 const amount = z.union([z.number(), z.string().trim().min(1)]).pipe(z.coerce.number());
 const series = z.object({
@@ -55,7 +55,7 @@ export type TrendingProductsData = DashboardData<"trending_product">;
 export type BestSalesData = DashboardData<"best_sales">;
 export type SessionSummaryData = DashboardData<"session_summary">;
 
-export async function fetchDashboard<A extends DashboardAction>(action: A, signal?: AbortSignal): Promise<DashboardData<A>> {
+export async function fetchDashboard<A extends DashboardAction>(action: A, signal?: AbortSignal): Promise<DashboardData<A> | null> {
   const response = await request<{ status?: string; msg?: string; data?: unknown } | unknown[] | null>({
     url: "/admin/dashboard",
     method: "GET",
@@ -63,7 +63,10 @@ export async function fetchDashboard<A extends DashboardAction>(action: A, signa
     signal,
   });
   let payload: unknown;
-  if (action === "best_sales" && Array.isArray(response)) {
+  if (isEmptyListResponse(response)) {
+    if (action !== "best_sales") return null;
+    payload = [];
+  } else if (action === "best_sales" && Array.isArray(response)) {
     payload = response;
   } else {
     if (!response || Array.isArray(response) || response.status !== "success") {

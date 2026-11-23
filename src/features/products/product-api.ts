@@ -1,4 +1,4 @@
-import { API_BASE_URL, request } from "../../lib/api";
+import { API_BASE_URL, isEmptyListResponse, request } from "../../lib/api";
 import type { Product } from "./sample-products";
 
 interface ProductRecord {
@@ -126,6 +126,7 @@ async function fetchProductList<TRecord>(
     params,
     signal,
   });
+  if (isEmptyListResponse(response)) return [];
   if (
     !Array.isArray(response) &&
     response?.status &&

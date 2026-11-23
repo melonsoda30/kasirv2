@@ -59,7 +59,7 @@ export function ProductFilterDrawer({
           {/* <DrawerDescription>Pilih store dan status, lalu simpan untuk menerapkan.</DrawerDescription> */}
         </DrawerHeader>
         <div className="min-h-0 space-y-6 overflow-y-auto px-4 py-4">
-          <fieldset className="space-y-3">
+          <fieldset className="min-w-0 space-y-3">
             <legend className="mb-2 text-sm font-medium">Store</legend>
             <div className="flex flex-wrap gap-2">
               {[
@@ -69,6 +69,8 @@ export function ProductFilterDrawer({
                 <Button
                   key={value}
                   type="button"
+                  size="sm"
+                  className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
                   variant={draft.store === value ? "default" : "outline"}
                   aria-pressed={draft.store === value}
                   onClick={() =>
@@ -80,13 +82,15 @@ export function ProductFilterDrawer({
               ))}
             </div>
           </fieldset>
-          <fieldset className="space-y-3">
+          <fieldset className="min-w-0 space-y-3">
             <legend className="mb-2 text-sm font-medium">Status</legend>
             <div className="flex flex-wrap gap-2">
               {statuses.map(({ value, label }) => (
                 <Button
                   key={value}
                   type="button"
+                  size="sm"
+                  className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
                   variant={draft.status === value ? "default" : "outline"}
                   aria-pressed={draft.status === value}
                   onClick={() =>

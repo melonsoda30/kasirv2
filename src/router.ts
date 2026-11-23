@@ -8,6 +8,15 @@ export const router = createRouter({
   context: { queryClient },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
+  defaultViewTransition: typeof window !== 'undefined' &&
+    window.CSS?.supports('selector(:active-view-transition-type(page))')
+    ? {
+      types: ({ fromLocation, pathChanged }) => {
+        if (!fromLocation || !pathChanged || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+        return ['page']
+      },
+    }
+    : false,
   scrollRestoration: true,
 })
 

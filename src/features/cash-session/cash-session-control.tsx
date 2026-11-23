@@ -8,7 +8,7 @@ import {
 } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock } from "lucide-react";
+import { Clock, RotateCcwClock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { SelectCombobox } from "@/components/select-combobox";
 import { InputNominal } from "@/components/input-nominal";
-import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
+import { getCashierBranch, useAuthStore } from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import {
   CashSessionError,
@@ -47,10 +47,9 @@ import {
   useCashSession,
 } from "./cash-session-query";
 
-type Step = "open" | "manage" | "handover" | "close";
+type Step = "open" | "handover" | "close";
 const titles: Record<Step, string> = {
   open: "Buka shift",
-  manage: "Shift aktif",
   handover: "Serah terima",
   close: "Tutup buku",
 };
@@ -82,12 +81,23 @@ export function CashSessionControl({
   closeSessionId?: string;
   ref?: Ref<{ openMenu: () => void }>;
 }) {
-  const account = useAuthStore((state) => state.session?.account);
+  const auth = useAuthStore((state) => state.session);
+  const account = auth?.account;
+  const branch = getCashierBranch(auth);
   const current = useCashSession();
   const queryClient = useQueryClient();
   const scope = cashSessionScope(account);
-  const active =
-    current.data?.session?.status === "open" ? current.data.session : null;
+  const session = current.data?.session;
+  const active = session?.status === "open" && (!branch || session.branch_id === branch.id)
+    ? session
+    : null;
+  const canOpenAtBranch = !branch || account?.store?.branch_id === branch.id;
+  const shiftName = active?.shift_title || "Shift aktif";
+  const shiftHours =
+    active?.shift_start && active.shift_end
+      ? `${active.shift_start.slice(0, 5)}–${active.shift_end.slice(0, 5)}`
+      : "";
+  const canOpenShift = current.isSuccess && !active && canOpenAtBranch;
   const inPopover = presentation === "popover";
   const [popoverOpen, setPopoverOpen] = useState(false);
   const shifts = current.data?.selectable ?? [];
@@ -115,7 +125,7 @@ export function CashSessionControl({
   const incoming = useQuery({
     queryKey: ["cash-session", "incoming", ...scope],
     queryFn: ({ signal }) => fetchPendingHandovers(signal),
-    enabled: !!current.data?.use_session && !active,
+    enabled: !!current.data?.use_session && !active && canOpenAtBranch,
     meta: { toast: false },
   });
   const candidates = useQuery({
@@ -124,11 +134,6 @@ export function CashSessionControl({
     enabled: step === "handover",
     meta: { toast: false },
   });
-  const branchId = account?.store?.branch_id;
-  const branchName =
-    getAccountBranches(account?.store).find(({ id }) => id === branchId)
-      ?.name ?? branchId;
-
   function show(next: Step, incomingSession?: CashSession) {
     if (popoverOpen) {
       openingDrawer.current = true;
@@ -143,7 +148,7 @@ export function CashSessionControl({
     setHandoverId(incomingSession?.session_id ?? "");
     setCash(incomingSession?.handover_amount?.toString() ?? "");
     setStep(next);
-    if (next === "manage" || next === "close") void current.refetch();
+    if (next === "close") void current.refetch();
   }
 
   useImperativeHandle(ref, () => ({ openMenu: () => setPopoverOpen(true) }));
@@ -168,7 +173,7 @@ export function CashSessionControl({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving.current || !validCash(cash)) return;
-    if (step === "open" && !chosenShift) return;
+    if (step === "open" && (!chosenShift || !canOpenAtBranch)) return;
     if (
       step === "handover" &&
       (!active || !candidates.data?.some(({ id }) => id === recipient))
@@ -301,58 +306,63 @@ export function CashSessionControl({
         </p>
       )}
       {current.isSuccess && active && (
-        <>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-semibold">Shift {active.shift_title} aktif</p>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+              <p className="min-w-0 break-words font-semibold">
+                {active.shift_title
+                  ? `Shift ${active.shift_title} aktif`
+                  : shiftName}
+              </p>
+              {shiftHours && (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {shiftHours}
+                </p>
+              )}
+            </div>
+            {active.opened_at && (
               <p className="text-xs text-muted-foreground">
                 Dibuka pukul {active.opened_at.slice(11, 16)}
               </p>
-            </div>
-            {!inPopover && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => show("manage")}
-              >
-                Kelola shift
-              </Button>
             )}
+            {/* <p className="break-all text-xs text-muted-foreground">
+              {active.session_id}
+            </p> */}
           </div>
-          {inPopover && (
-            <>
-              <CashSessionAmounts session={active} />
-              {active.pending_count > 0 && (
-                <p className="text-muted-foreground">
-                  {active.pending_count} pesanan belum dibayar.
-                </p>
-              )}
-              {handedOver && (
-                <p>
-                  Serah terima dicatat untuk{" "}
-                  {active.handover_to_name || "kasir penerima"}.
-                </p>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={handedOver}
-                  onClick={() => show("handover")}
-                >
-                  Serah terima
-                </Button>
-                <Button type="button" size="sm" onClick={() => show("close")}>
-                  Tutup buku
-                </Button>
-              </div>
-            </>
+          <CashSessionAmounts session={active} />
+          {active.pending_count > 0 && (
+            <p className="text-muted-foreground">
+              {active.pending_count} pesanan belum dibayar.
+            </p>
           )}
-        </>
+          {handedOver && (
+            <p className="text-muted-foreground">
+              Serah terima dicatat untuk{" "}
+              {active.handover_to_name || "kasir penerima"}. Lanjutkan tutup
+              buku.
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={handedOver}
+              onClick={() => show("handover")}
+            >
+              Serah terima
+            </Button>
+            <Button type="button" onClick={() => show("close")}>
+              Tutup buku
+            </Button>
+          </div>
+        </div>
       )}
-      {current.isSuccess && !active && (
+      {current.isSuccess && !active && !canOpenAtBranch && (
+        <p role="status" className="text-muted-foreground">
+          Untuk membuka shift di {branch?.name}, gunakan akun yang terdaftar di cabang ini.
+        </p>
+      )}
+      {canOpenShift && (
         <>
           <p className="font-semibold">
             {closedAt
@@ -381,10 +391,9 @@ export function CashSessionControl({
               Buka shift untuk menerima pembayaran.
             </p>
           )}
-          {(!inPopover || (!incoming.isPending && !incoming.data?.length)) && (
+          {!incoming.data?.length && (!inPopover || !incoming.isPending) && (
             <Button
               className="w-full"
-              variant={incoming.data?.length ? "outline" : "default"}
               type="button"
               onClick={() => show("open")}
             >
@@ -413,10 +422,35 @@ export function CashSessionControl({
             <Button
               ref={popoverTrigger}
               type="button"
-              variant="outline"
+              variant={canOpenShift ? "default" : "outline"}
               size="sm"
+              aria-label={
+                active && shiftHours ? `${shiftName}, ${shiftHours}` : undefined
+              }
             >
-              <Clock aria-hidden="true" /> Shift
+              <Clock aria-hidden="true" />
+              {!active && (canOpenShift ? "Buka shift" : "Shift")}
+              {active && (
+                <span
+                  className="grid max-w-36 min-w-0 overflow-hidden text-left"
+                  aria-hidden={!!shiftHours}
+                >
+                  <span
+                    className={cn(
+                      "col-start-1 row-start-1 truncate",
+                      shiftHours &&
+                        "motion-safe:animate-[shift-label_14s_ease-in-out_infinite]",
+                    )}
+                  >
+                    {shiftName}
+                  </span>
+                  {shiftHours && (
+                    <span className="col-start-1 row-start-1 hidden tabular-nums motion-safe:block motion-safe:animate-[shift-label_14s_ease-in-out_-7s_infinite]">
+                      {shiftHours}
+                    </span>
+                  )}
+                </span>
+              )}
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -440,14 +474,16 @@ export function CashSessionControl({
                 size="sm"
                 onClick={() => setPopoverOpen(false)}
               >
-                <Link to="/sesi-kas">Riwayat shift</Link>
+                <Link to="/sesi-kas">
+                  <RotateCcwClock className="size-4" /> Riwayat shift
+                </Link>
               </Button>
             )}
           </PopoverContent>
         </Popover>
       ) : (
         <section
-          className="space-y-2 rounded-lg border bg-background p-3 text-sm"
+          className="space-y-2 rounded-lg border bg-background p-4 text-sm"
           aria-label="Shift"
         >
           {status}
@@ -486,34 +522,8 @@ export function CashSessionControl({
                 {active && dialogStep !== "open" && (
                   <CashSessionAmounts session={active} />
                 )}
-                {dialogStep === "manage" && active && (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      {active.session_id} ({active.shift_start}–
-                      {active.shift_end})
-                    </p>
-                    {active.pending_count > 0 && (
-                      <p>
-                        {active.pending_count} pesanan belum dibayar di shift
-                        ini.
-                      </p>
-                    )}
-                    {handedOver && (
-                      <p>
-                        Serah terima dicatat untuk{" "}
-                        {active.handover_to_name || "kasir penerima"}. Lanjutkan
-                        tutup buku.
-                      </p>
-                    )}
-                  </>
-                )}
                 {dialogStep === "open" && (
                   <>
-                    {branchName && branchId !== "all" && (
-                      <p className="text-muted-foreground">
-                        Cabang {branchName}
-                      </p>
-                    )}
                     <div className="space-y-2">
                       <label htmlFor={choiceId} className="font-medium">
                         Shift kerja
@@ -626,50 +636,44 @@ export function CashSessionControl({
                     </div>
                   </div>
                 )}
-                {dialogStep !== "manage" && (
-                  <>
-                    <label className="grid gap-2 font-medium">
-                      {formLabels[dialogStep].cash}
-                      <InputNominal
-                        value={cash}
-                        onValueChange={setCash}
-                        required
-                        disabled={busy}
-                      />
-                    </label>
-                    {dialogStep === "close" && difference !== undefined && (
-                      <p
-                        role="status"
-                        className={cn(
-                          difference < 0
-                            ? "text-destructive"
-                            : "text-foreground",
-                        )}
-                      >
-                        {formatCashDifference(difference)}
-                        {Math.abs(difference) >
-                          (current.data?.cash_tolerance ?? 0) &&
-                          " Selisih di luar toleransi."}
-                      </p>
+                <label className="grid gap-2 font-medium">
+                  {formLabels[dialogStep].cash}
+                  <InputNominal
+                    value={cash}
+                    onValueChange={setCash}
+                    required
+                    disabled={busy}
+                  />
+                </label>
+                {dialogStep === "close" && difference !== undefined && (
+                  <p
+                    role="status"
+                    className={cn(
+                      difference < 0 && "text-destructive",
+                      difference === 0 && "text-emerald-700 dark:text-emerald-400",
+                      difference > 0 && "text-blue-700 dark:text-blue-400",
                     )}
-                    <label className="grid gap-2 font-medium">
-                      {dialogStep === "close" &&
-                      difference !== undefined &&
-                      difference < 0
-                        ? "Alasan selisih"
-                        : "Catatan (opsional)"}
-                      <Textarea
-                        ref={notesRef}
-                        value={notes}
-                        onChange={(event) =>
-                          setNotes(event.currentTarget.value)
-                        }
-                        rows={2}
-                        disabled={busy}
-                      />
-                    </label>
-                  </>
+                  >
+                    {formatCashDifference(difference)}
+                    {Math.abs(difference) >
+                      (current.data?.cash_tolerance ?? 0) &&
+                      " Selisih di luar toleransi."}
+                  </p>
                 )}
+                <label className="grid gap-2 font-medium">
+                  {dialogStep === "close" &&
+                  difference !== undefined &&
+                  difference < 0
+                    ? "Alasan selisih"
+                    : "Catatan (opsional)"}
+                  <Textarea
+                    ref={notesRef}
+                    value={notes}
+                    onChange={(event) => setNotes(event.currentTarget.value)}
+                    rows={2}
+                    disabled={busy}
+                  />
+                </label>
                 {error && (
                   <p role="alert" className="text-destructive">
                     {error}
@@ -677,45 +681,28 @@ export function CashSessionControl({
                 )}
               </form>
               <DrawerFooter className="shrink-0 border-t">
-                {dialogStep === "manage" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={handedOver}
-                      onClick={() => show("handover")}
-                    >
-                      Serah terima
+                <div className="grid grid-cols-2 gap-2">
+                  <DrawerClose asChild>
+                    <Button type="button" variant="outline" disabled={busy}>
+                      Batal
                     </Button>
-                    <Button type="button" onClick={() => show("close")}>
-                      Tutup buku
-                    </Button>
-                  </div>
-                )}
-                {dialogStep !== "manage" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <DrawerClose asChild>
-                      <Button type="button" variant="outline" disabled={busy}>
-                        Batal
-                      </Button>
-                    </DrawerClose>
-                    <Button
-                      type="submit"
-                      form={formId}
-                      className="h-auto min-h-9 whitespace-normal py-2"
-                      loading={busy}
-                      disabled={
-                        busy ||
-                        !validCash(cash) ||
-                        (dialogStep === "open" && !chosenShift) ||
-                        (dialogStep === "handover" && !recipient) ||
-                        (dialogStep === "close" && blockedClose)
-                      }
-                    >
-                      {formLabels[dialogStep].submit}
-                    </Button>
-                  </div>
-                )}
+                  </DrawerClose>
+                  <Button
+                    type="submit"
+                    form={formId}
+                    className="whitespace-normal"
+                    loading={busy}
+                    disabled={
+                      busy ||
+                      !validCash(cash) ||
+                      (dialogStep === "open" && !chosenShift) ||
+                      (dialogStep === "handover" && !recipient) ||
+                      (dialogStep === "close" && blockedClose)
+                    }
+                  >
+                    {formLabels[dialogStep].submit}
+                  </Button>
+                </div>
               </DrawerFooter>
             </>
           )}

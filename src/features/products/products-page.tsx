@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Plus, Search, X } from "lucide-react";
-import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
@@ -66,8 +65,8 @@ export function ProductsPage() {
 
   return (
     <>
-      <header className="products-toolbar fixed inset-x-0 top-0 z-20 border-b border-zinc-200 bg-white pt-[calc(env(safe-area-inset-top)+12px)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <div className="flex h-9 gap-2 px-4">
+      <header className="products-toolbar sticky top-0 z-20 w-full border-b bg-background pt-[calc(env(safe-area-inset-top)+12px)]">
+        <div className="page-gutter flex h-9 gap-2">
           <div className="min-w-0 flex-1">
             <Input
               type="search"
@@ -88,10 +87,12 @@ export function ProductsPage() {
             </Link>
           </Button>
         </div>
-        <div className="flex h-14 items-center gap-2 px-4">
+        <div className="page-gutter flex h-14 items-center gap-2">
           <div role="group" aria-label="Kategori produk" className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
             <Button
               type="button"
+              size="sm"
+              className="w-fit rounded-full px-3"
               aria-pressed={category === null}
               onClick={() => setCategory(null)}
               variant={category === null ? "default" : "outline"}
@@ -102,6 +103,8 @@ export function ProductsPage() {
               <Button
                 key={slug}
                 type="button"
+                size="sm"
+                className="w-fit rounded-full px-3"
                 aria-pressed={category === slug}
                 onClick={() => setCategory(slug)}
                 variant={category === slug ? "default" : "outline"}
@@ -118,7 +121,7 @@ export function ProductsPage() {
           <div
             role="group"
             aria-label="Filter aktif"
-            className="flex h-11 items-start gap-2 overflow-x-auto px-4"
+            className="page-gutter flex h-11 items-start gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]"
           >
             {filterChips.map(({ key, label }) => (
               <Button
@@ -141,19 +144,16 @@ export function ProductsPage() {
       </header>
       <main
         id="main-content"
-        className={cn(
-          "min-w-0 flex-1 px-4 pb-6",
-          filterChips.length ? "pt-[calc(148px+env(safe-area-inset-top)+1rem)]" : "pt-[calc(104px+env(safe-area-inset-top)+1rem)]",
-        )}
+        className="page-gutter min-w-0 flex-1 py-4 sm:py-6"
       >
         {catalog.isPending && (
           <div role="status" aria-label="Memuat produk" aria-busy="true">
             <span className="sr-only">Memuat produk...</span>
-            <ul aria-hidden="true" className="grid grid-cols-2 gap-x-3 gap-y-6">
+            <ul aria-hidden="true" className="bento-catalog">
               {Array.from({ length: 6 }, (_, index) => (
-                <li key={index} className="min-w-0 motion-safe:animate-pulse">
-                  <div className="aspect-square rounded bg-muted" />
-                  <div className="space-y-2 pt-2">
+                <li key={index} className="bento-surface overflow-hidden motion-safe:animate-pulse">
+                  <div className="aspect-square bg-muted" />
+                  <div className="space-y-2 p-3">
                     <div className="h-4 w-4/5 rounded bg-muted" />
                     <div className="h-4 w-1/2 rounded bg-muted" />
                   </div>
@@ -169,9 +169,9 @@ export function ProductsPage() {
           </div>
         )}
         {catalog.isSuccess && products.length > 0 && (
-          <ul className="grid grid-cols-2 gap-x-3 gap-y-6">
+          <ul className="bento-catalog">
             {products.map((product) => (
-              <li key={product.id} className="min-w-0">
+              <li key={product.id} className="bento-surface">
                 <ProductCard product={product} onUpdate={updateProduct} />
               </li>
             ))}

@@ -27,6 +27,16 @@ api.interceptors.response.use((response) => response, (error: unknown) => {
   return Promise.reject(error)
 })
 
+export function isEmptyListResponse(response: unknown) {
+  if (Array.isArray(response)) return response.length === 0
+  if (!response || typeof response !== 'object' || !('data' in response) ||
+    !Array.isArray(response.data) || response.data.length !== 0) return false
+
+  if (!('status' in response) || response.status === 'success') return true
+  return 'msg' in response && typeof response.msg === 'string' &&
+    /^(?:no data(?: yet)?|tidak ada data|belum ada data)[.!]?$/i.test(response.msg.trim())
+}
+
 /** Returns the response body. Axios errors retain their status and response. */
 export async function request<TResponse, TBody = unknown>(
   config: AxiosRequestConfig<TBody>,

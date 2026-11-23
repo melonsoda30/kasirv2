@@ -21,13 +21,20 @@ export function OrderQuantityButtons({ orderId, item, catalogProduct }: { orderI
     if (error) toast.error(error)
   }
 
+  return <QuantityButtons title={product.title} quantity={item.quantity}
+    canIncrease={product.active && reserved < product.stock} onChange={change} />
+}
+
+export function QuantityButtons({ title, quantity, canIncrease, disabled, onChange }: {
+  title: string; quantity: number; canIncrease: boolean; disabled?: boolean; onChange: (delta: number) => void
+}) {
   return (
     <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border p-0.5">
-      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Kurangi ${product.title}`} onClick={() => change(-1)}>
+      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Kurangi ${title}`} disabled={disabled} onClick={() => onChange(-1)}>
         <Minus aria-hidden="true" />
       </Button>
-      <span className="min-w-6 text-center text-sm tabular-nums" aria-live="polite">{item.quantity}</span>
-      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Tambah ${product.title}`} disabled={!product.active || reserved >= product.stock} onClick={() => change(1)}>
+      <span className="min-w-6 text-center text-sm tabular-nums" aria-live="polite">{quantity}</span>
+      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Tambah ${title}`} disabled={disabled || !canIncrease} onClick={() => onChange(1)}>
         <Plus aria-hidden="true" />
       </Button>
     </div>
