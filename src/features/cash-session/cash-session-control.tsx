@@ -112,7 +112,10 @@ export function CashSessionControl({
   const [shiftCode, setShiftCode] = useState("");
   const [recipient, setRecipient] = useState("");
   const [handoverId, setHandoverId] = useState("");
-  const [cash, setCash] = useState("");
+  const [cashInput, setCashInput] = useState<string>();
+  const cash = cashInput ?? (
+    step === "close" || step === "handover" ? active?.expected_cash.toString() ?? "" : ""
+  );
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [closedAt, setClosedAt] = useState("");
@@ -148,7 +151,7 @@ export function CashSessionControl({
     setRecipient("");
     setShiftCode("");
     setHandoverId(incomingSession?.session_id ?? "");
-    setCash(incomingSession?.handover_amount?.toString() ?? "");
+    setCashInput(next === "open" ? incomingSession?.handover_amount?.toString() ?? "" : undefined);
     setStep(next);
     if (next === "close") void current.refetch();
   }
@@ -664,7 +667,7 @@ export function CashSessionControl({
                   {formLabels[dialogStep].cash}
                   <InputNominal
                     value={cash}
-                    onValueChange={setCash}
+                    onValueChange={setCashInput}
                     required
                     disabled={busy}
                   />

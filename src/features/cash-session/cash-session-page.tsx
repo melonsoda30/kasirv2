@@ -71,9 +71,9 @@ const defaultFilters: CashSessionFilters = {
 };
 
 function cashDifference(session: CashSession) {
-  if (session.closing_cash == null) return "Uang fisik belum dicatat";
+  if (session.closing_cash == null) return undefined;
   const difference = session.closing_cash - session.expected_cash;
-  if (difference === 0) return "Uang sesuai";
+  if (difference === 0) return undefined;
   const label = difference < 0 ? "kurang" : "lebih";
   return `Uang ${label} ${formatCurrency(Math.abs(difference))}`;
 }
@@ -99,15 +99,12 @@ function ShiftTransactionRow({ transaction, username }: {
       <div className="min-w-0 break-words">
         {id_trx}
         <p className="text-xs text-muted-foreground">{date} ({status})</p>
-        {needsMethod && detail.isLoading ? (
-          <Skeleton className="mt-1 h-3 w-24 max-w-full" />
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Metode pembayaran {methodLabel || "—"}
-          </p>
-        )}
       </div>
-      <span className="shrink-0">{formatCurrency(total)}</span>
+      <div className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-1.5 text-right">
+        {needsMethod && detail.isLoading && <Skeleton className="inline-block h-3 w-12 self-center" />}
+        {methodLabel && <span className="wrap-anywhere text-xs text-muted-foreground">({methodLabel})</span>}
+        <span className="shrink-0">{formatCurrency(total)}</span>
+      </div>
     </li>
   );
 }
@@ -316,6 +313,7 @@ export function CashSessionPage({
   });
 
   const session = report.data?.session;
+  const sessionDifference = session?.status === "closed" ? cashDifference(session) : undefined;
   const canForceClose = admin && session?.status === "open";
   const branchName = (id: string) =>
     branches.find((branch) => branch.id === id)?.name || id;
@@ -412,9 +410,7 @@ export function CashSessionPage({
                         </StatusBadge>
                       </span>
                       <span className="block text-sm font-medium tabular-nums">
-                        {row.status === "closed"
-                          ? cashDifference(row)
-                          : formatCurrency(row.omzet)}
+                        {row.status === "closed" ? cashDifference(row) : formatCurrency(row.omzet)}
                       </span>
                       <span className="block break-words border-t pt-2 text-xs text-muted-foreground">
                         {row.user_name} ({branchName(row.branch_id)})
@@ -530,15 +526,13 @@ export function CashSessionPage({
                   </form>
                 ) : (
                   <>
-                    {session.status === "closed" && (
+                    {session.status === "closed" && (sessionDifference || session.close_notes) && (
                       <div className="space-y-1">
-                        <p>
-                          {cashDifference(session)}
-                          {session.difference_exceeded &&
-                            " (di luar toleransi)"}
-                        </p>
-                        {session.closed_by_name && (
-                          <p>Ditutup oleh {session.closed_by_name}</p>
+                        {sessionDifference && (
+                          <p>
+                            {sessionDifference}
+                            {session.difference_exceeded && " (di luar toleransi)"}
+                          </p>
                         )}
                         {session.close_notes && (
                           <p className="whitespace-pre-wrap break-words">
