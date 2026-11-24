@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Package } from "lucide-react";
 import { cn } from "cn";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
 import { formatCurrency } from "@/lib/currency";
 import { ProductPrice } from "@/features/products/product-price";
 import type { Product } from "@/features/products/sample-products";
@@ -20,7 +21,6 @@ export function OrderItemRow({
   showDiscount?: boolean;
   quantityControl?: ReactNode;
 }) {
-  const [failedImage, setFailedImage] = useState(false);
   const image =
     item.product.photo ||
     (item.product.image
@@ -29,20 +29,9 @@ export function OrderItemRow({
   return (
     <li className="flex items-start gap-3 py-3">
       <div className="flex size-18 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
-        {image && !failedImage ? (
-          <img
-            src={image}
-            alt=""
-            loading="lazy"
-            className="size-full object-cover"
-            onError={() => setFailedImage(true)}
-          />
-        ) : (
-          <Package
-            className="size-5 text-muted-foreground"
-            aria-hidden="true"
-          />
-        )}
+        <SkeletonImage src={image} alt="" loading="lazy" className="size-full"
+          fallback={<Package className="size-5 text-muted-foreground" aria-hidden="true" />}
+        />
       </div>
       <div
         className={cn(

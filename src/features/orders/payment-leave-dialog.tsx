@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useBlocker, type ShouldBlockFn } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,13 @@ const shouldBlockPaymentNavigation: ShouldBlockFn = ({ current, next }) =>
   (next.routeId !== "/payment/$orderId" ||
     next.params.orderId !== current.params.orderId);
 
-export function PaymentLeaveDialog({ busy, pending }: { busy: boolean; pending: boolean }) {
+export function PaymentLeaveDialog({
+  busy,
+  pending,
+}: {
+  busy: boolean;
+  pending: boolean;
+}) {
   const blocker = useBlocker({
     shouldBlockFn: shouldBlockPaymentNavigation,
     withResolver: true,
@@ -51,10 +58,8 @@ export function PaymentLeaveDialog({ busy, pending }: { busy: boolean; pending: 
               : `Pesanan tetap ada di ${destination} dan bisa dibayar nanti.`}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="flex-row">
-          <Button type="button" variant="outline" onClick={reset}>
-            {busy ? "Kembali ke pembayaran" : "Lanjut bayar"}
-          </Button>
+        {busy && <Skeleton className="h-4 w-full" />}
+        <DialogFooter className="flex flex-row justify-end gap-2">
           {!busy && (
             <Button
               type="button"
@@ -63,7 +68,10 @@ export function PaymentLeaveDialog({ busy, pending }: { busy: boolean; pending: 
             >
               Tinggalkan
             </Button>
-          )}
+          )}{" "}
+          <Button type="button" variant="outline" onClick={reset}>
+            {busy ? "Kembali ke pembayaran" : "Lanjut bayar"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

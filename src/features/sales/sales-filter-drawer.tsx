@@ -2,11 +2,13 @@ import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import { SelectCombobox } from "@/components/select-combobox";
 import { DatePickerRange } from "@/components/date-picker-range";
 import {
   Drawer,
   DrawerTrigger,
+  DrawerBody,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
@@ -20,6 +22,7 @@ export function SalesFilterDrawer({
   filters,
   stores,
   cashiers,
+  cashiersLoading,
   paymentOptions,
   paymentMethods,
   onSave,
@@ -29,6 +32,7 @@ export function SalesFilterDrawer({
   filters: SalesFilters;
   stores: { value: string; label: string }[];
   cashiers: { value: string; label: string }[];
+  cashiersLoading: boolean;
   paymentOptions: { value: string; label: string }[];
   paymentMethods: Pick<ReturnType<typeof usePaymentMethods>, "isPending" | "isError" | "isFetching" | "isSuccess" | "refetch">;
   onSave: (filters: SalesFilters) => void;
@@ -88,18 +92,18 @@ export function SalesFilterDrawer({
         >
           <SlidersHorizontal aria-hidden="true" />
           {active && (
-            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-ring" />
           )}
         </Button>
       </DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DrawerHeader className="shrink-0">
+      <DrawerContent>
+        <DrawerHeader>
           <DrawerTitle>Filter penjualan</DrawerTitle>
           {/* <DrawerDescription>
             Pilih filter lalu simpan untuk menerapkan.
           </DrawerDescription> */}
         </DrawerHeader>
-        <div className="min-h-0 space-y-5 overflow-y-auto p-4">
+        <DrawerBody className="space-y-5 p-4">
           <div className="space-y-2">
             <label htmlFor="sales-date-range" className="text-sm font-medium">
               Rentang tanggal
@@ -138,18 +142,21 @@ export function SalesFilterDrawer({
                   >
                     {label}
                   </label>
-                  <SelectCombobox
-                    searchable={false}
-                    id={`sales-filter-${key}`}
-                    aria-label={label}
-                    options={[{ value: "all", label: "Semua" }, ...options]}
-                    value={draft[key]}
-                    onChange={(value) =>
-                      setDraft((current) => ({ ...current, [key]: value || "all" }))
-                    }
-                  />
-                  {key === "paymentMethod" && paymentMethods.isPending && (
-                    <p role="status" className="text-sm text-muted-foreground">Memuat metode pembayaran...</p>
+                  {((key === "paymentMethod" && paymentMethods.isPending) || (key === "cashier" && cashiersLoading)) ? (
+                    <SkeletonGroup label={`Memuat ${label.toLowerCase()}`}>
+                      <Skeleton className="h-10 w-full" />
+                    </SkeletonGroup>
+                  ) : (
+                    <SelectCombobox
+                      searchable={false}
+                      id={`sales-filter-${key}`}
+                      aria-label={label}
+                      options={[{ value: "all", label: "Semua" }, ...options]}
+                      value={draft[key]}
+                      onChange={(value) =>
+                        setDraft((current) => ({ ...current, [key]: value || "all" }))
+                      }
+                    />
                   )}
                   {key === "paymentMethod" && paymentMethods.isError && (
                     <div className="flex items-center justify-between gap-2">
@@ -165,8 +172,8 @@ export function SalesFilterDrawer({
               )}
             </div>
           ))}
-        </div>
-        <DrawerFooter className="shrink-0">
+        </DrawerBody>
+        <DrawerFooter>
           <div className={cn("grid gap-2", hasDraftFilters ? "grid-cols-2" : "grid-cols-1")}>
             {hasDraftFilters && (
               <Button

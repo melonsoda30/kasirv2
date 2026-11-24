@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
   Check,
+  CircleAlert,
   CircleCheck,
   CreditCard,
   Pencil,
@@ -21,9 +22,13 @@ import { cn } from "cn";
 import { InputNominal } from "@/components/input-nominal";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Drawer,
   DrawerClose,
+  DrawerBody,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -104,12 +109,22 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
         <PaymentCompleteDrawer receipt={receipt} returnSession={returnSession} />
       )}
       {!receipt && isLoading && (
-        <p role="status" className="text-sm text-muted-foreground">Memuat pesanan...</p>
+        <SkeletonGroup label="Memuat pesanan" className="pb-[calc(8rem+env(safe-area-inset-bottom))]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <SkeletonRows media="thumbnail" />
+            <SkeletonRows rows={2} />
+          </div>
+          <div aria-hidden="true" className="payment-summary-bar fixed inset-x-0 bottom-0 z-30 space-y-3 rounded-t-2xl border-t bg-card pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] sm:pl-[calc(1.5rem+env(safe-area-inset-left))] sm:pr-[calc(1.5rem+env(safe-area-inset-right))]">
+            <Skeleton className="h-4 w-36" />
+            <div className="flex justify-between gap-4"><Skeleton className="h-4 w-24" /><Skeleton className="h-4 w-20" /></div>
+            <Skeleton className="h-12 w-full rounded-xl" />
+          </div>
+        </SkeletonGroup>
       )}
       {!receipt && pending && detail.isError && (
         <div className="space-y-3 text-sm">
           <p role="alert">{detail.error.message}</p>
-          <Button type="button" variant="outline" onClick={() => void detail.refetch()}>Coba lagi</Button>
+          <Button type="button" variant="outline" loading={detail.isFetching} onClick={() => void detail.refetch()}>Coba lagi</Button>
         </div>
       )}
       {showCheckout && hasItems && draftOwner && (
@@ -163,13 +178,13 @@ function PaymentCompleteDrawer({ receipt, returnSession }: {
         if (!next) void navigate({ to: "/cart", search: { session: returnSession }, replace: true });
       }}
     >
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DrawerHeader className="shrink-0 text-center">
-          <CircleCheck className="mx-auto mb-2 size-10 text-emerald-600" aria-hidden="true" />
+      <DrawerContent>
+        <DrawerHeader className="text-center">
+          <CircleCheck className="mx-auto mb-2 size-10 fill-success-indicator text-status-icon-foreground" aria-hidden="true" />
           <DrawerTitle>Pembayaran selesai</DrawerTitle>
           <DrawerDescription>{receipt.order.name} ({receipt.method.title})</DrawerDescription>
         </DrawerHeader>
-        <div className="min-h-0 overflow-y-auto px-4 pb-4">
+        <DrawerBody>
           <dl className="space-y-2 text-sm">
             <TotalRow label="Total pembayaran" amount={receipt.total} />
             {receipt.method.kind === "cash" && (
@@ -179,8 +194,8 @@ function PaymentCompleteDrawer({ receipt, returnSession }: {
               </>
             )}
           </dl>
-        </div>
-        <DrawerFooter className="shrink-0 border-t">
+        </DrawerBody>
+        <DrawerFooter>
           <DrawerClose asChild>
             <Button type="button">Selesai</Button>
           </DrawerClose>
@@ -228,8 +243,11 @@ function PaymentForm({
   const drawerTitleRef = useRef<HTMLHeadingElement>(null);
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const cashFormId = useId();
+  const method = methods.find((entry) => entry.code === methodCode);
+  const showPaymentSummary = !!method;
 
   useLayoutEffect(() => {
+    if (!showPaymentSummary) return;
     const summary = summaryRef.current;
     const space = summarySpaceRef.current;
     if (!summary || !space) return;
@@ -241,7 +259,7 @@ function PaymentForm({
     const observer = new ResizeObserver(reserveSummarySpace);
     observer.observe(summary, { box: "border-box" });
     return () => observer.disconnect();
-  }, []);
+  }, [showPaymentSummary]);
 
   useLayoutEffect(() => {
     if (drawerOpen && drawer === "proof") drawerTitleRef.current?.focus({ preventScroll: true });
@@ -249,7 +267,6 @@ function PaymentForm({
 
   const pendingCode = pendingSale?.paymentCode ?? pendingSale?.paymentMethod;
   const recordedMethod = findRecordedPaymentMethod(methods, pendingCode);
-  const method = methodCode ? methods.find((entry) => entry.code === methodCode) : recordedMethod;
   const checkingPendingMethods = !!pendingSale && (methodsQuery.isFetching || methodsQuery.isError);
   const isCash = method?.kind === "cash";
   const isQris = method?.kind === "qris";
@@ -276,6 +293,8 @@ function PaymentForm({
   if (selectedDiscount) drawerTitle = "Edit diskon";
   const change = paid === null ? 0 : Math.max(0, paid - totals.total);
   const canPayCash = paid !== null && paid >= totals.total;
+  const payDisabled = busy || cashSession.isPending || checkingPendingMethods || !method || (isCash && !canPayCash);
+  const readyToPay = !payDisabled && !saveError && cashSession.isSuccess && cashSessionAllowsSales(cashSession.data, branchId);
   const cashInputValid =
     cashInput !== "" &&
     Number.isSafeInteger(Number(cashInput)) &&
@@ -441,9 +460,10 @@ function PaymentForm({
           Metode Pembayaran
         </h2>
         {methodsQuery.isPending && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Memuat metode pembayaran…
-          </p>
+          <SkeletonGroup label="Memuat metode pembayaran" className="space-y-2">
+            <Skeleton className="h-11 w-full rounded-xl" />
+            <Skeleton className="h-11 w-full rounded-xl" />
+          </SkeletonGroup>
         )}
         {methodsQuery.isError && (
           <div className="flex items-center justify-between gap-2">
@@ -475,7 +495,7 @@ function PaymentForm({
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-auto min-h-11 w-full justify-start gap-3 rounded-xl whitespace-normal px-3 py-2 text-left aria-pressed:border-primary aria-pressed:bg-muted"
+                    className="h-auto min-h-11 w-full justify-start gap-3 rounded-xl bg-card whitespace-normal px-3 py-2 text-left aria-pressed:border-ring"
                     aria-pressed={entry.code === method?.code}
                     disabled={busy}
                     onClick={() => {
@@ -503,7 +523,7 @@ function PaymentForm({
                       )}
                     </span>
                     {entry.code === method?.code && (
-                      <Check className="size-4 shrink-0" aria-hidden="true" />
+                      <Check className="size-4 shrink-0 text-accent-foreground" aria-hidden="true" />
                     )}
                   </Button>
                 </li>
@@ -513,15 +533,16 @@ function PaymentForm({
         )}
       </section>
 
-      <div ref={summarySpaceRef} className="col-span-full" aria-hidden="true" />
-      <section
+      {showPaymentSummary && <div ref={summarySpaceRef} className="col-span-full" aria-hidden="true" />}
+      {showPaymentSummary && <section
         ref={summaryRef}
         className="payment-summary-bar fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col gap-2 rounded-t-2xl border-t bg-card pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] sm:pl-[calc(1.5rem+env(safe-area-inset-left))] sm:pr-[calc(1.5rem+env(safe-area-inset-right))]"
         aria-labelledby="payment-total"
       >
-        <h2 id="payment-total" className="shrink-0 text-sm font-semibold">
-          Ringkasan Pembayaran
-        </h2>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <h2 id="payment-total" className="text-sm font-semibold">Ringkasan Pembayaran</h2>
+          {readyToPay && <StatusBadge tone="ready">Siap dibayar</StatusBadge>}
+        </div>
         <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain">
           <dl className="space-y-2 text-sm">
             <TotalRow label="Subtotal produk" amount={totals.subtotal} />
@@ -574,12 +595,13 @@ function PaymentForm({
             )}
           </dl>
           {isCash && paid !== null && !canPayCash && (
-            <p role="status" className="text-sm text-destructive">
+            <p role="status" className="text-sm text-warning-foreground">
               Nominal kurang {formatCurrency(totals.total - paid)}.
             </p>
           )}
           {saveError && (!drawerOpen || drawer !== "proof") && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+              <CircleAlert className="mt-0.5 size-4 shrink-0 fill-destructive-indicator text-status-icon-foreground" aria-hidden="true" />
               {saveError}
             </p>
           )}
@@ -587,8 +609,8 @@ function PaymentForm({
         <Button
           type="button"
           className="h-12 w-full rounded-xl"
-          loading={busy && isCash}
-          disabled={busy || cashSession.isPending || checkingPendingMethods || !method || (isCash && !canPayCash)}
+          loading={cashSession.isPending || methodsQuery.isPending || (!!pendingSale && methodsQuery.isFetching) || (busy && isCash)}
+          disabled={payDisabled}
           onClick={() => {
             if (cashSession.isError) {
               setSaveError('Status shift belum bisa diperiksa. Coba lagi.');
@@ -610,7 +632,7 @@ function PaymentForm({
         >
           Bayar
         </Button>
-      </section>
+      </section>}
 
       <Drawer
         open={drawerOpen}
@@ -620,7 +642,6 @@ function PaymentForm({
         }}
       >
         <DrawerContent
-          className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           onCloseAutoFocus={(event) => {
             if (!drawerTriggerRef.current?.isConnected) return;
             event.preventDefault();
@@ -632,7 +653,7 @@ function PaymentForm({
         >
           {drawer && (
             <div className="drawer-step contents" key={drawer}>
-              <DrawerHeader className="shrink-0">
+              <DrawerHeader>
                 <DrawerTitle ref={drawerTitleRef} tabIndex={-1}>
                   {unavailableMethod && "Metode pembayaran berubah"}
                   {!unavailableMethod && confirmingPayment && "Konfirmasi pembayaran"}
@@ -660,7 +681,7 @@ function PaymentForm({
                 )}
               </DrawerHeader>
               {unavailableMethod && (
-                <DrawerFooter className="shrink-0 border-t">
+                <DrawerFooter>
                   <DrawerClose asChild>
                     <Button type="button" variant="outline">
                       Pilih metode lain
@@ -681,7 +702,7 @@ function PaymentForm({
                 <>
                   <form
                     id={cashFormId}
-                    className="min-h-0 overflow-y-auto px-4 pb-4"
+                    className="drawer-body"
                     onSubmit={(event) => {
                       event.preventDefault();
                       if (!cashInputValid) return;
@@ -699,7 +720,7 @@ function PaymentForm({
                       />
                     </label>
                   </form>
-                  <DrawerFooter className="shrink-0 border-t">
+                  <DrawerFooter>
                     <div className="grid grid-cols-2 gap-2">
                       <DrawerClose asChild>
                         <Button type="button" variant="outline">
@@ -719,12 +740,13 @@ function PaymentForm({
               )}
               {drawer === "qris" && !unavailableMethod && (
                 <>
-                  <div className="payment-step-body min-h-0 overflow-y-auto px-4 pb-4">
+                  <DrawerBody className="payment-step-body">
                     {method?.image && failedQr !== method.image && (
-                      <img
+                      <SkeletonImage
                         src={method.image}
                         alt="Kode QRIS toko"
-                        className="mx-auto aspect-square w-full max-w-[min(16rem,34dvh)] rounded-lg border bg-background object-contain p-2"
+                        className="mx-auto aspect-square max-w-[min(16rem,34dvh)] rounded-lg border bg-background"
+                        imageClassName="size-full object-contain p-2"
                         onLoad={() => setLoadedQr(method.image ?? "")}
                         onError={() => setFailedQr(method.image ?? "")}
                       />
@@ -739,8 +761,8 @@ function PaymentForm({
                           : "Gambar QRIS belum tersedia di pengaturan toko."}
                       </p>
                     )}
-                  </div>
-                  <DrawerFooter className="shrink-0 border-t">
+                  </DrawerBody>
+                  <DrawerFooter>
                     <div className="grid grid-cols-2 gap-2">
                       <DrawerClose asChild>
                         <Button type="button" variant="outline">
@@ -763,11 +785,16 @@ function PaymentForm({
                 </>
               )}
               {drawer === "proof" && !unavailableMethod && (pendingSale ? <>
-                <div className={cn("min-h-0 space-y-2 overflow-y-auto px-4 pb-4", isQris && method?.image && "payment-step-body")}>
+                <DrawerBody className={cn("space-y-2", isQris && method?.image && "payment-step-body")}>
                   <p>Konfirmasi setelah pembayaran diterima.</p>
-                  {saveError && <p role="alert" className="text-destructive">{saveError}</p>}
-                </div>
-                <DrawerFooter className="shrink-0 border-t">
+                  {saveError && (
+                    <p role="alert" className="flex items-start gap-2 text-destructive">
+                      <CircleAlert className="mt-0.5 size-4 shrink-0 fill-destructive-indicator text-status-icon-foreground" aria-hidden="true" />
+                      {saveError}
+                    </p>
+                  )}
+                </DrawerBody>
+                <DrawerFooter>
                   <div className="grid grid-cols-2 gap-2">
                     <DrawerClose asChild><Button type="button" variant="outline" disabled={busy}>Batal</Button></DrawerClose>
                     <Button type="button" loading={busy} disabled={busy} onClick={() => void finish()}>Selesaikan pembayaran</Button>

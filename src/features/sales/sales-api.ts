@@ -198,6 +198,7 @@ export function transactionListParams(
 ) {
   const keyword = search.trim();
   const cashier = filters.cashier?.trim();
+  const branchId = filters.branchId?.trim();
   const sales = filters.sales?.trim();
   const payment = filters.paymentMethod;
   const { status } = filters;
@@ -205,6 +206,7 @@ export function transactionListParams(
   const endDate = formatApiDate(filters.dateRange?.to);
   return {
     action: "list_trx",
+    ...(branchId && branchId !== "all" && { branch_id: branchId }),
     ...(keyword && { search: keyword }),
     ...(cashier && cashier !== "all" && { kasir: cashier }),
     ...(sales && sales !== "all" && { sales }),

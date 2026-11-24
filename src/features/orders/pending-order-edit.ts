@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/features/auth/auth-store'
 import { refreshCashSessionData } from '@/features/cash-session/cash-session-query'
 import { getProductPricing } from '@/features/products/product-pricing'
 import type { Product } from '@/features/products/sample-products'
 import type { Sale } from '@/features/sales/sales-summary'
 import { orderOwner, productKey, type OrderDraft, type OrderLine } from './order-store'
-import { editPendingOrder } from './payment-details'
+import { editPendingOrder, resolvePendingTransaction } from './payment-details'
 import { findRecordedPaymentMethod, usePaymentMethods } from './payment-methods'
 
 export function pendingOrderSearch(search: Record<string, unknown>): { edit?: string; session?: string } {
@@ -55,6 +56,25 @@ export function usePendingOrderEdit(owner: string | undefined, enabled: boolean)
         queryClient.invalidateQueries({ queryKey: ['transactions'] }),
         queryClient.invalidateQueries({ queryKey: ['products'] }),
       ])
+    },
+    meta: { toast: false },
+  })
+}
+
+export function usePendingOrderCancellation(owner: string | undefined, branchId: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => {
+      if (!owner || orderOwner(useAuthStore.getState().session) !== owner) {
+        throw new Error('Cabang atau akun berubah. Buka ulang pesanan.')
+      }
+      return resolvePendingTransaction(id, undefined, branchId)
+    },
+    onSuccess: () => toast.success('Pesanan dibatalkan.'),
+    onSettled: () => {
+      refreshCashSessionData(queryClient)
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      void queryClient.invalidateQueries({ queryKey: ['products'] })
     },
     meta: { toast: false },
   })

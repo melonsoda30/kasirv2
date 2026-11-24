@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CatalogSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
 import { useProductCatalog } from './use-product-catalog';
@@ -76,11 +77,9 @@ export function ProductsPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <ProductFilterDrawer
-            filters={filters}
-            stores={availableStores}
-            onSave={setFilters}
-          />
+          {canManageCategories && (
+            <CategorySettingsDrawer categories={categories} />
+          )}
           <Button asChild size="icon">
             <Link to="/produk/tambah" aria-label="Tambah produk">
               <Plus size={18} aria-hidden="true" />
@@ -113,9 +112,11 @@ export function ProductsPage() {
               </Button>
             ))}
           </div>
-          {canManageCategories && (
-            <CategorySettingsDrawer categories={categories} />
-          )}
+          <ProductFilterDrawer
+            filters={filters}
+            stores={availableStores}
+            onSave={setFilters}
+          />
         </div>
         {filterChips.length > 0 && (
           <div
@@ -146,22 +147,7 @@ export function ProductsPage() {
         id="main-content"
         className="page-gutter min-w-0 flex-1 py-4 sm:py-6"
       >
-        {catalog.isPending && (
-          <div role="status" aria-label="Memuat produk" aria-busy="true">
-            <span className="sr-only">Memuat produk...</span>
-            <ul aria-hidden="true" className="bento-catalog">
-              {Array.from({ length: 6 }, (_, index) => (
-                <li key={index} className="bento-surface overflow-hidden motion-safe:animate-pulse">
-                  <div className="aspect-square bg-muted" />
-                  <div className="space-y-2 p-3">
-                    <div className="h-4 w-4/5 rounded bg-muted" />
-                    <div className="h-4 w-1/2 rounded bg-muted" />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {catalog.isPending && <CatalogSkeleton />}
         {!catalog.isPending && catalog.isError && (
           <div role="alert" className="space-y-3 py-16 text-center">
             <p className="text-sm">Gagal memuat produk. Silakan coba lagi.</p>

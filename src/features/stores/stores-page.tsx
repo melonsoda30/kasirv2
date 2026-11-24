@@ -1,6 +1,7 @@
 import { Store } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { StoreBranches } from "./store-branches";
 import { useStore, type AdminStore } from "./stores-api";
 
@@ -41,9 +42,10 @@ export function StoresPage() {
   return (
     <PageLayout title="Toko" prevLink="/profil">
       {storeQuery.isPending && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Memuat toko...
-        </p>
+        <SkeletonGroup label="Memuat toko" className="space-y-4">
+          <SkeletonRows rows={1} media="avatar" />
+          <SkeletonRows rows={2} />
+        </SkeletonGroup>
       )}
       {storeQuery.isError && (
         <div className="mb-4 space-y-2">

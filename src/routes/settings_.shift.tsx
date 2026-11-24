@@ -158,8 +158,8 @@ function CashToleranceForm({
           disabled={pending}
         />
       </label>
-      <Button type="submit" className="justify-self-end" disabled={pending}>
-        {pending ? "Menyimpan..." : "Simpan toleransi"}
+      <Button type="submit" className="justify-self-end" loading={pending}>
+        Simpan toleransi
       </Button>
     </form>
   );

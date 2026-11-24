@@ -5,6 +5,7 @@ import { isAxiosError } from 'axios'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { SkeletonFields, SkeletonGroup } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { PageLayout } from '@/components/page-layout'
 import { deleteProduct } from '@/features/products/product-api'
@@ -34,7 +35,13 @@ function EditProductPage() {
         : error.message)
     },
   })
-  if (catalog.isPending) return <PageLayout title="Edit produk" prevLink="/produk"><p role="status">Memuat produk...</p></PageLayout>
+  if (catalog.isPending) return (
+    <PageLayout title="Edit produk" prevLink="/produk">
+      <SkeletonGroup label="Memuat produk" className="bento-surface p-4 sm:p-5">
+        <SkeletonFields rows={4} />
+      </SkeletonGroup>
+    </PageLayout>
+  )
   if (catalog.isError) return <PageLayout title="Edit produk" prevLink="/produk"><p role="alert">Gagal memuat produk.</p><Button type="button" variant="outline" loading={catalog.isFetching} onClick={() => void catalog.refetch()}>Coba lagi</Button></PageLayout>
   if (!product) return (
     <PageLayout title="Produk tidak ditemukan" prevLink="/produk">

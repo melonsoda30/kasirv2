@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { Pencil, Plus, Settings, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Drawer,
+  DrawerBody,
   DrawerContent,
   DrawerFooter,
   DrawerHeader,
@@ -124,16 +126,15 @@ export function CategorySettingsDrawer({
       </DrawerTrigger>
       <DrawerContent
         aria-describedby={undefined}
-        className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
-        <DrawerHeader className="shrink-0">
+        <DrawerHeader>
           <DrawerTitle>
             {editor?.type === "save" && editor.category && "Edit kategori"}
             {editor?.type === "save" && !editor.category && "Tambah kategori"}
             {editor?.type !== "save" && "Pengaturan kategori"}
           </DrawerTitle>
         </DrawerHeader>
-        <div className="min-h-0 space-y-6 overflow-y-auto px-4 py-4">
+        <DrawerBody className="space-y-6 py-4">
           {editor?.type === "save" && (
             <form
               id="category-settings-form"
@@ -168,7 +169,11 @@ export function CategorySettingsDrawer({
           )}
           {editor?.type !== "save" && (
             <>
-              {categories.isPending && <p role="status">Memuat kategori...</p>}
+              {categories.isPending && (
+                <SkeletonGroup label="Memuat kategori">
+                  <SkeletonRows />
+                </SkeletonGroup>
+              )}
               {categories.isError && (
                 <div className="space-y-2">
                   <p role="alert" className="text-destructive">
@@ -281,8 +286,8 @@ export function CategorySettingsDrawer({
               </ul>
             </>
           )}
-        </div>
-        <DrawerFooter className="shrink-0">
+        </DrawerBody>
+        <DrawerFooter>
           {editor?.type === "save" ? (
             <div className="grid grid-cols-2 gap-2">
               <Button

@@ -69,15 +69,14 @@ export function OrderNoteField({
         </DrawerTrigger>
       )}
       <DrawerContent
-        className="product-drawer pb-[env(safe-area-inset-bottom)]"
         aria-describedby={undefined}
       >
-        <DrawerHeader className="shrink-0">
+        <DrawerHeader>
           <DrawerTitle>{note ? "Edit catatan" : "Tambah catatan"}</DrawerTitle>
         </DrawerHeader>
         <form
           id={formId}
-          className="min-h-0 overflow-y-auto px-4 pb-4"
+          className="drawer-body"
           onSubmit={(event) => {
             event.preventDefault();
             setOrderNote(order.id, draft.trim());
@@ -93,7 +92,7 @@ export function OrderNoteField({
             />
           </label>
         </form>
-        <DrawerFooter className="shrink-0 border-t">
+        <DrawerFooter>
           {note && (
             <Button type="button" variant="outline" className="text-destructive" onClick={() => {
               setOrderNote(order.id, '')

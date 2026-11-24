@@ -4,6 +4,7 @@ import { isAxiosError } from "axios";
 import { ArrowDown, ArrowUp, GripVertical, ListOrdered } from "lucide-react";
 import { motion, Reorder, useDragControls } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button-variants";
 import {
   Drawer,
@@ -177,16 +178,19 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
       </DrawerTrigger>
       <DrawerContent
         aria-describedby={undefined}
-        className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
-        <DrawerHeader className="shrink-0">
+        <DrawerHeader>
           <DrawerTitle>Atur urutan kategori</DrawerTitle>
         </DrawerHeader>
         <motion.div
           layoutScroll
-          className="min-h-0 space-y-6 overflow-y-auto px-4 py-4"
+          className="drawer-body space-y-6 py-4"
         >
-          {query?.isPending && <p role="status">Memuat kategori...</p>}
+          {query?.isPending && (
+            <SkeletonGroup label="Memuat kategori">
+              <SkeletonRows />
+            </SkeletonGroup>
+          )}
           {query?.isError && (
             <div className="space-y-2">
               <p role="alert" className="text-destructive">
@@ -249,7 +253,7 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
             </Reorder.Group>
           )}
         </motion.div>
-        <DrawerFooter className="shrink-0 border-t">
+        <DrawerFooter>
           <div className="grid grid-cols-2 gap-2">
             <DrawerClose asChild>
               <Button

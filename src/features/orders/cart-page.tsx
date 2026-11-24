@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import {
 import {
   Drawer,
   DrawerClose,
+  DrawerBody,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -22,7 +24,11 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { getCashierBranch, useAuthStore, usesCashierMode } from "@/features/auth/auth-store";
+import {
+  getCashierBranch,
+  useAuthStore,
+  usesCashierMode,
+} from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import {
   fetchTransactionDetail,
@@ -34,22 +40,26 @@ import { CashSessionControl } from "@/features/cash-session/cash-session-control
 import { fetchCashSessionReport } from "@/features/cash-session/cash-session-api";
 import {
   cashSessionScope,
-  refreshCashSessionData,
   useCashSession,
 } from "@/features/cash-session/cash-session-query";
 import { OrderItemRow } from "./order-item-row";
 import { useOrderProducts } from "./order-products";
 import { QuantityButtons } from "./order-quantity-buttons";
 import { orderOwner, pendingOrderDraft, useOrderStore } from "./order-store";
-import { resolvePendingTransaction } from "./payment-details";
-import { changePendingQuantity, pendingQuantityLimit, usePendingOrderEdit } from "./pending-order-edit";
+import {
+  changePendingQuantity,
+  pendingQuantityLimit,
+  usePendingOrderCancellation,
+  usePendingOrderEdit,
+} from "./pending-order-edit";
 
 export function CartPage({ sessionId }: { sessionId?: string }) {
   const account = useAuthStore((state) => state.session?.account);
   const draftOwner = useAuthStore((state) => orderOwner(state.session));
-  const cashierBranchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
+  const cashierBranchId = useAuthStore(
+    (state) => getCashierBranch(state.session)?.id,
+  );
   const branchId = cashierBranchId ?? account?.store?.branch_id;
-  const queryClient = useQueryClient();
   const catalog = useOrderProducts();
   const [detailId, setDetailId] = useState<string | null>(null);
   const editPending = usePendingOrderEdit(draftOwner, !!detailId);
@@ -63,7 +73,8 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   const cashSession = useCashSession(!!sessionId);
   const activeSession = cashSession.data?.session;
   const matchingSession =
-    !!sessionId && activeSession?.session_id === sessionId &&
+    !!sessionId &&
+    activeSession?.session_id === sessionId &&
     (!cashierBranchId || activeSession.branch_id === cashierBranchId);
   const sessionReport = useQuery({
     queryKey: [
@@ -77,6 +88,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
     meta: { toast: false },
   });
   const queueFilters: TransactionFilters = {
+    branchId: cashierBranchId,
     status: "pending",
   };
   const queue = useQuery({
@@ -88,12 +100,22 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
     ],
     queryFn: async ({ signal }) => {
       const queue = await fetchTransactions(queueFilters, "", signal);
-      const sales = await Promise.all(queue.sales.map((sale) => {
-        const wrongBranch = branchId && branchId !== "all" && sale.branchId && sale.branchId !== branchId;
-        if (sale.status !== "pending" || wrongBranch) return sale;
-        if (sale.items.length > 0 && (sale.branchId || (!cashierBranchId && branchId !== "all"))) return sale;
-        return fetchTransactionDetail(sale.id, signal);
-      }));
+      const sales = await Promise.all(
+        queue.sales.map((sale) => {
+          const wrongBranch =
+            branchId &&
+            branchId !== "all" &&
+            sale.branchId &&
+            sale.branchId !== branchId;
+          if (sale.status !== "pending" || wrongBranch) return sale;
+          if (
+            sale.items.length > 0 &&
+            (sale.branchId || (!cashierBranchId && branchId !== "all"))
+          )
+            return sale;
+          return fetchTransactionDetail(sale.id, signal);
+        }),
+      );
       return { ...queue, sales };
     },
     enabled: !!account && !!branchId,
@@ -104,26 +126,24 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   const headerAction = isCashier ? (
     <CashSessionControl presentation="popover" />
   ) : undefined;
-  const hasActiveDraft = useOrderStore((state) =>
-    state.owner === draftOwner && state.orders.some(
-      ({ id, items, note }) => id === state.activeId && (items.length > 0 || !!note?.trim()),
-    ),
+  const hasActiveDraft = useOrderStore(
+    (state) =>
+      state.owner === draftOwner &&
+      state.orders.some(
+        ({ id, items, note }) =>
+          id === state.activeId && (items.length > 0 || !!note?.trim()),
+      ),
   );
-  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancellation, setCancellation] = useState<{
+    id: string;
+    lastItem: boolean;
+  } | null>(null);
+  const cancelId = cancellation?.id;
   const cancelAfterDetail = useRef<string | null>(null);
-  const cancelPending = useMutation({
-    mutationFn: (id: string) => resolvePendingTransaction(id, undefined, cashierBranchId),
-    onSuccess: () => {
-      setCancelId(null);
-      toast.success("Pesanan dibatalkan.");
-    },
-    onSettled: () => {
-      refreshCashSessionData(queryClient);
-      void queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      void queryClient.invalidateQueries({ queryKey: ["products"] });
-    },
-    meta: { toast: false },
-  });
+  const cancelPending = usePendingOrderCancellation(
+    draftOwner,
+    cashierBranchId,
+  );
   const pendingIds = new Set(
     sessionReport.data?.session.pending_ids ?? activeSession?.pending_ids ?? [],
   );
@@ -133,7 +153,10 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   const visibleQueue = (queue.data?.sales ?? []).filter(
     (sale) =>
       sale.status === "pending" &&
-      (!branchId || branchId === "all" || sale.branchId === branchId || (!cashierBranchId && !sale.branchId)) &&
+      (!branchId ||
+        branchId === "all" ||
+        sale.branchId === branchId ||
+        (!cashierBranchId && !sale.branchId)) &&
       (!sessionId || pendingIds.has(sale.id)),
   );
   const queueLoading =
@@ -145,9 +168,9 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
     !!sessionId && (!matchingSession || sessionReport.isError);
   const showQueue = queueReady && !sessionUnavailable;
 
-  function openCancel(id: string) {
+  function openCancel(id: string, lastItem = false) {
     cancelPending.reset();
-    setCancelId(id);
+    setCancellation({ id, lastItem });
   }
 
   return (
@@ -185,9 +208,9 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
           </p>
         )}
         {branchId && queueLoading && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Memuat antrean pesanan...
-          </p>
+          <SkeletonGroup label="Memuat antrean pesanan">
+            <SkeletonRows className="gap-3" />
+          </SkeletonGroup>
         )}
         {branchId && !queueLoading && queue.isError && (
           <div className="flex items-center justify-between gap-3 text-sm">
@@ -226,81 +249,167 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
             {visibleQueue.map((sale) => {
               const order = pendingOrderDraft(sale);
               const productBranch = sale.branchId ?? branchId;
-              const modifying = editPending.isPending || cancelPending.isPending;
-              const itemCount = sale.totalItems ?? order.items.reduce((sum, item) => sum + item.quantity, 0);
+              const modifying =
+                editPending.isPending || cancelPending.isPending;
+              const itemCount =
+                sale.totalItems ??
+                order.items.reduce((sum, item) => sum + item.quantity, 0);
               const total = formatCurrency(sale.total);
-              const selected = detail.data?.id === sale.id ? detail.data : undefined;
-              const editable = selected?.status === "pending" && (!cashierBranchId || selected.branchId === cashierBranchId) && !detail.isError;
-              const drawerOrder = selected ? pendingOrderDraft(selected) : order;
+              const selected =
+                detail.data?.id === sale.id ? detail.data : undefined;
+              const editable =
+                selected?.status === "pending" &&
+                (!cashierBranchId || selected.branchId === cashierBranchId) &&
+                !detail.isError;
+              const drawerOrder = selected
+                ? pendingOrderDraft(selected)
+                : order;
               return (
                 <li key={sale.id} className="bento-surface overflow-hidden">
-                  <Drawer open={detailId === sale.id} dismissible={!modifying}
-                    onOpenChange={(open) => setDetailId(open ? sale.id : null)}>
+                  <Drawer
+                    open={detailId === sale.id}
+                    dismissible={!modifying}
+                    onOpenChange={(open) => setDetailId(open ? sale.id : null)}
+                  >
                     <DrawerTrigger asChild>
-                      <button type="button" aria-label={`Detail pesanan ${order.name}, ${itemCount} item, ${total}`}
-                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                      <button
+                        type="button"
+                        aria-label={`Detail pesanan ${order.name}, ${itemCount} item, ${total}`}
+                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      >
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold">{order.name}</span>
-                          <span className="mt-1 block text-xs text-muted-foreground">{itemCount} item</span>
+                          <span className="block truncate text-sm font-semibold">
+                            {order.name}
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {itemCount} item
+                          </span>
                         </span>
-                        <span className="shrink-0 text-sm font-semibold tabular-nums">{total}</span>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums">
+                          {total}
+                        </span>
                       </button>
                     </DrawerTrigger>
                     <DrawerContent
-                      className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
                       onCloseAutoFocus={(event) => {
                         if (cancelAfterDetail.current === sale.id) {
                           event.preventDefault();
                           cancelAfterDetail.current = null;
-                          openCancel(sale.id);
+                          openCancel(sale.id, true);
                         }
                       }}
                     >
-                      <DrawerHeader className="shrink-0">
+                      <DrawerHeader>
                         <DrawerTitle>Detail pesanan</DrawerTitle>
                         <DrawerDescription>{order.name}</DrawerDescription>
                       </DrawerHeader>
-                      <div className="min-h-0 overflow-y-auto px-4 pb-4">
-                        {detail.isPending && <p role="status" className="py-3 text-muted-foreground">Memuat detail pesanan...</p>}
-                        {detail.isError && <div className="space-y-2 py-3">
-                          <p role="alert">{detail.error.message}</p>
-                          <Button type="button" variant="outline" size="sm" onClick={() => void detail.refetch()}>Coba lagi</Button>
-                        </div>}
+                      <DrawerBody>
+                        {detail.isPending && (
+                          <SkeletonGroup label="Memuat detail pesanan">
+                            <SkeletonRows rows={2} media="thumbnail" />
+                          </SkeletonGroup>
+                        )}
+                        {detail.isError && (
+                          <div className="space-y-2 py-3">
+                            <p role="alert">{detail.error.message}</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void detail.refetch()}
+                            >
+                              Coba lagi
+                            </Button>
+                          </div>
+                        )}
                         {selected && !editable && !detail.isError && (
-                          <p role="status" className="py-3 text-muted-foreground">Pesanan ini sudah tidak bisa diedit.</p>
+                          <p
+                            role="status"
+                            className="py-3 text-muted-foreground"
+                          >
+                            Pesanan ini sudah tidak bisa diedit.
+                          </p>
                         )}
                         <ul className="divide-y">
                           {drawerOrder.items.map((item) => {
                             const id = item.product.id;
-                            const product = catalog.data?.products.find((entry) => entry.id === id && entry.branchId === productBranch);
-                            return <OrderItemRow key={item.key} item={item} quantityControl={
-                              <QuantityButtons title={item.product.title} quantity={item.quantity}
-                                canIncrease={item.quantity < pendingQuantityLimit(drawerOrder, id, product)} disabled={modifying || !editable}
-                                onChange={(delta) => {
-                                  if (!selected || !editable) return;
-                                  const updated = changePendingQuantity(drawerOrder, drawerOrder, id, item.quantity + delta, product);
-                                  if (!updated.items.length) {
-                                    cancelAfterDetail.current = sale.id;
-                                    setDetailId(null);
-                                    return;
-                                  }
-                                  if (updated !== drawerOrder) editPending.mutate({ order: updated, transaction: selected }, {
-                                    onError: (error) => toast.error(error.message),
-                                  });
-                                }} />
-                            } />;
+                            const product = catalog.data?.products.find(
+                              (entry) =>
+                                entry.id === id &&
+                                entry.branchId === productBranch,
+                            );
+                            return (
+                              <OrderItemRow
+                                key={item.key}
+                                item={item}
+                                quantityControl={
+                                  <QuantityButtons
+                                    title={item.product.title}
+                                    quantity={item.quantity}
+                                    canIncrease={
+                                      item.quantity <
+                                      pendingQuantityLimit(
+                                        drawerOrder,
+                                        id,
+                                        product,
+                                      )
+                                    }
+                                    disabled={modifying || !editable}
+                                    onChange={(delta) => {
+                                      if (!selected || !editable) return;
+                                      const updated = changePendingQuantity(
+                                        drawerOrder,
+                                        drawerOrder,
+                                        id,
+                                        item.quantity + delta,
+                                        product,
+                                      );
+                                      if (!updated.items.length) {
+                                        cancelAfterDetail.current = sale.id;
+                                        setDetailId(null);
+                                        return;
+                                      }
+                                      if (updated !== drawerOrder)
+                                        editPending.mutate(
+                                          {
+                                            order: updated,
+                                            transaction: selected,
+                                          },
+                                          {
+                                            onError: (error) =>
+                                              toast.error(error.message),
+                                          },
+                                        );
+                                    }}
+                                  />
+                                }
+                              />
+                            );
                           })}
                         </ul>
-                      </div>
-                      <DrawerFooter className="shrink-0 border-t">
+                      </DrawerBody>
+                      <DrawerFooter>
                         <div className="grid grid-cols-2 gap-2">
                           <DrawerClose asChild>
-                            <Button type="button" variant="outline" disabled={modifying}>Tutup</Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={modifying}
+                            >
+                              Tutup
+                            </Button>
                           </DrawerClose>
-                          {(modifying || !editable) && <Button type="button" disabled>Tambah produk</Button>}
+                          {(modifying || !editable) && (
+                            <Button type="button" disabled>
+                              Tambah produk
+                            </Button>
+                          )}
                           {!modifying && editable && (
                             <Button asChild>
-                              <Link to={orderPath} search={{ edit: sale.id, session: sessionId }}>
+                              <Link
+                                to={orderPath}
+                                search={{ edit: sale.id, session: sessionId }}
+                              >
                                 <Plus aria-hidden="true" /> Tambah produk
                               </Link>
                             </Button>
@@ -309,7 +418,11 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
                       </DrawerFooter>
                     </DrawerContent>
                   </Drawer>
-                  {order.note && <p className="px-4 pb-3 text-sm break-words whitespace-pre-wrap">{order.note}</p>}
+                  {order.note && (
+                    <p className="px-4 pb-3 text-sm break-words whitespace-pre-wrap">
+                      {order.note}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-2 border-t p-3">
                     <Button
                       type="button"
@@ -321,10 +434,17 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
                       <Trash2 aria-hidden="true" /> Batalkan pesanan
                     </Button>
                     <Button asChild={!modifying} disabled={modifying}>
-                      {modifying ? "Bayar" : (
-                        <Link to="/payment/$orderId" params={{ orderId: sale.id }} search={{ pending: true, session: sessionId }}>
+                      {modifying ? (
+                        "Bayar"
+                      ) : (
+                        <Link
+                          to="/payment/$orderId"
+                          params={{ orderId: sale.id }}
+                          search={{ pending: true, session: sessionId }}
+                        >
                           Bayar
-                        </Link>)}
+                        </Link>
+                      )}
                     </Button>
                   </div>
                 </li>
@@ -341,15 +461,20 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
       <Dialog
         open={!!cancelId}
         onOpenChange={(open) => {
-          if (!open && !cancelPending.isPending) setCancelId(null);
+          if (!open && !cancelPending.isPending) setCancellation(null);
         }}
       >
-        <DialogContent>
+        <DialogContent showCloseButton={!cancellation?.lastItem}>
           <DialogHeader>
-            <DialogTitle>Batalkan pesanan?</DialogTitle>
+            <DialogTitle>
+              {cancellation?.lastItem
+                ? "Hapus produk terakhir?"
+                : "Batalkan pesanan?"}
+            </DialogTitle>
             <DialogDescription>
-              Pesanan {cancelId} akan dibatalkan dan stok produknya
-              dikembalikan.
+              {cancellation?.lastItem
+                ? "Menghapus produk terakhir akan menghapus pesanan ini dari antrean."
+                : `Pesanan ${cancelId} akan dibatalkan dan stok produknya dikembalikan.`}
             </DialogDescription>
           </DialogHeader>
           {cancelPending.isError && (
@@ -362,7 +487,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
               type="button"
               variant="outline"
               disabled={cancelPending.isPending}
-              onClick={() => setCancelId(null)}
+              onClick={() => setCancellation(null)}
             >
               Kembali
             </Button>
@@ -372,7 +497,10 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
               loading={cancelPending.isPending}
               disabled={cancelPending.isPending}
               onClick={() => {
-                if (cancelId) cancelPending.mutate(cancelId);
+                if (cancelId)
+                  cancelPending.mutate(cancelId, {
+                    onSuccess: () => setCancellation(null),
+                  });
               }}
             >
               Batalkan pesanan

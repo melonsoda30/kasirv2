@@ -3,10 +3,14 @@ import { ArrowLeft, Plus, Search, SlidersHorizontal, UserRound } from "lucide-re
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import {
   Drawer,
   DrawerTrigger,
+  DrawerBody,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
@@ -59,20 +63,20 @@ function UserFilterDrawer({
           size="icon"
           className="relative h-9 w-9"
           aria-label={
-            hasFilters(filters) ? "Filter users, filter aktif" : "Filter users"
+            hasFilters(filters) ? "Filter pengguna, filter aktif" : "Filter pengguna"
           }
         >
           <SlidersHorizontal aria-hidden="true" />
           {hasFilters(filters) && (
-            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-ring" />
           )}
         </Button>
       </DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)]">
+      <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>Filter Users</DrawerTitle>
+          <DrawerTitle>Filter pengguna</DrawerTitle>
         </DrawerHeader>
-        <div className="min-h-0 space-y-5 overflow-y-auto px-4 pb-4">
+        <DrawerBody className="space-y-5">
           {fields.map(({ key, label, options }) => (
             <fieldset key={key} className="min-w-0 space-y-2">
               <legend className="mb-2 text-sm font-medium">{label}</legend>
@@ -102,7 +106,7 @@ function UserFilterDrawer({
               </div>
             </fieldset>
           ))}
-        </div>
+        </DrawerBody>
         <DrawerFooter>
           <div
             className={cn("grid gap-2", hasFilters(draft) ? "grid-cols-2" : "grid-cols-1")}
@@ -133,41 +137,24 @@ function UserFilterDrawer({
 }
 
 function UserCard({ user }: { user: UserRecord }) {
-  const [failedImage, setFailedImage] = useState("");
   const image = user.user_foto
     ? new URL(user.user_foto, `${API_BASE_URL.replace(/\/$/, "")}/`).href
     : "";
   return (
     <article className="bento-surface flex items-start gap-3 p-4">
       <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-        {image && image !== failedImage ? (
-          <img
-            src={image}
-            alt={`Foto ${userDisplayName(user)}`}
-            loading="lazy"
-            className="size-full object-cover"
-            onError={() => setFailedImage(image)}
-          />
-        ) : (
-          <UserRound
-            className="size-6 text-muted-foreground"
-            aria-hidden="true"
-          />
-        )}
+        <SkeletonImage src={image} alt={`Foto ${userDisplayName(user)}`} loading="lazy" className="size-full"
+          fallback={<UserRound className="size-6 text-muted-foreground" aria-hidden="true" />}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <h2 className="min-w-0 break-words text-sm font-semibold">
             {userDisplayName(user)}
           </h2>
-          <span
-            className={cn(
-              "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium",
-              user.user_status === "active" ? "bg-emerald-500/10 text-emerald-700" : "bg-muted text-muted-foreground",
-            )}
-          >
+          <StatusBadge tone={user.user_status === "active" ? "ready" : "neutral"} className="shrink-0">
             {user.user_status === "active" ? "Aktif" : "Nonaktif"}
-          </span>
+          </StatusBadge>
         </div>
         <p className="mt-2 break-words text-xs text-muted-foreground">
           {user.user_store_name || user.user_store_id || "Belum ditetapkan ke toko"}
@@ -234,7 +221,7 @@ export function UsersPage() {
                 </Link>
               </Button>
               <h1 className="text-lg font-semibold tracking-tight">
-                Users {usersQuery.isSuccess && `(${users.length})`}
+                Pengguna {usersQuery.isSuccess && `(${users.length})`}
               </h1>
             </div>
           </div>
@@ -242,7 +229,7 @@ export function UsersPage() {
         <div className="page-gutter flex gap-2 py-3">
           <Input
             type="search"
-            aria-label="Cari users"
+            aria-label="Cari pengguna"
             placeholder="Cari nama, username, atau ID..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -263,7 +250,9 @@ export function UsersPage() {
         className="page-gutter min-w-0 flex-1 pt-[calc(109px+env(safe-area-inset-top)+1rem)] pb-6"
       >
         {usersQuery.isPending && (
-          <p role="status">Memuat daftar pengguna...</p>
+          <SkeletonGroup label="Memuat daftar pengguna">
+            <SkeletonRows rows={4} media="avatar" className="gap-3" />
+          </SkeletonGroup>
         )}
         {!usersQuery.isPending && usersQuery.isError && (
           <div className="space-y-3">

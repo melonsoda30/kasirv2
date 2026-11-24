@@ -2,7 +2,6 @@ import * as React from "react"
 import type { VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { Slot } from "radix-ui"
-import { Loader2 } from "lucide-react"
 import { buttonVariants } from "./button-variants"
 
 function Button({
@@ -33,7 +32,6 @@ function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
     >
-      {loading && <Loader2 className="animate-spin" aria-hidden="true" />}
       {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : children}
     </Comp>
   )

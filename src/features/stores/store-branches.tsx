@@ -92,12 +92,12 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
       )}
 
       <Drawer open={savingBranch} dismissible={!save.isPending} onOpenChange={(open) => { if (!open) closeEditor(); }}>
-        <DrawerContent onCloseAutoFocus={restoreFocus} className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-          <DrawerHeader className="shrink-0">
+        <DrawerContent onCloseAutoFocus={restoreFocus}>
+          <DrawerHeader>
             <DrawerTitle>{editingBranch ? "Edit cabang" : "Tambah cabang"}</DrawerTitle>
             <DrawerDescription className="sr-only">Form pengelolaan cabang toko.</DrawerDescription>
           </DrawerHeader>
-          <form key={editingBranch?.id ?? "new"} id="store-branch-form" onSubmit={submit} className="min-h-0 overflow-y-auto px-4 pb-4">
+          <form key={editingBranch?.id ?? "new"} id="store-branch-form" onSubmit={submit} className="drawer-body">
             <fieldset disabled={save.isPending} className="min-w-0 space-y-2">
               <label htmlFor="store-branch-name" className="block text-sm font-medium">Nama cabang</label>
               <Input id="store-branch-name" name="name" defaultValue={editingBranch?.name} required
@@ -107,7 +107,7 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
               <p role="alert" className="mt-4 text-sm text-destructive">{validationError || save.error?.message}</p>
             )}
           </form>
-          <DrawerFooter className="grid shrink-0 grid-cols-2 border-t">
+          <DrawerFooter className="grid grid-cols-2">
             <Button type="button" variant="outline" disabled={save.isPending} onClick={closeEditor}>Batal</Button>
             <Button type="submit" form="store-branch-form" loading={save.isPending}>Simpan</Button>
           </DrawerFooter>

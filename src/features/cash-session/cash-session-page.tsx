@@ -9,8 +9,15 @@ import { PageLayout } from "@/components/page-layout";
 import { DatePickerRange } from "@/components/date-picker-range";
 import { Button } from "@/components/ui/button";
 import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonRows,
+} from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
   Drawer,
   DrawerClose,
+  DrawerBody,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -30,12 +37,14 @@ import {
   useAuthStore,
 } from "@/features/auth/auth-store";
 import { fetchUsers, userDisplayName } from "@/features/users/users-api";
+import { fetchTransactionDetail } from "@/features/sales/sales-api";
 import { formatCurrency } from "@/lib/currency";
 import {
   closeCashSession,
   fetchCashSessionReport,
   fetchCashSessions,
   type CashSession,
+  type CashSessionReportTransaction,
 } from "./cash-session-api";
 import { CashSessionAmounts, CashSessionControl } from "./cash-session-control";
 import {
@@ -69,18 +78,54 @@ function cashDifference(session: CashSession) {
   return `Uang ${label} ${formatCurrency(Math.abs(difference))}`;
 }
 
+function ShiftTransactionRow({ transaction, username }: {
+  transaction: CashSessionReportTransaction;
+  username?: string;
+}) {
+  const { id_trx, date, total, status, payment_method } = transaction;
+  const needsMethod = !payment_method && status.trim().toLowerCase() !== "pending";
+  const detail = useQuery({
+    queryKey: ["transactions", "detail", username, id_trx],
+    queryFn: ({ signal }) => fetchTransactionDetail(id_trx, signal),
+    enabled: needsMethod && !!username,
+    meta: { toast: false },
+  });
+  const method = payment_method || detail.data?.paymentMethod || "";
+  const names: Record<string, string> = { cash: "Tunai", qris: "QRIS" };
+  const methodLabel = names[method.toLowerCase()] ?? method;
+
+  return (
+    <li className="flex justify-between gap-2 py-2">
+      <div className="min-w-0 break-words">
+        {id_trx}
+        <p className="text-xs text-muted-foreground">{date} ({status})</p>
+        {needsMethod && detail.isLoading ? (
+          <Skeleton className="mt-1 h-3 w-24 max-w-full" />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Metode pembayaran {methodLabel || "—"}
+          </p>
+        )}
+      </div>
+      <span className="shrink-0">{formatCurrency(total)}</span>
+    </li>
+  );
+}
+
 function CashSessionFilterDrawer({
   filters,
   onSave,
   shifts,
   branches,
   cashiers,
+  cashiersLoading,
 }: {
   filters: CashSessionFilters;
   onSave: (filters: CashSessionFilters) => void;
   shifts: ComboboxOption[];
   branches?: ComboboxOption[];
   cashiers?: ComboboxOption[];
+  cashiersLoading: boolean;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -91,7 +136,7 @@ function CashSessionFilterDrawer({
       label: "Status shift",
       options: [
         { value: "open", label: "Terbuka" },
-        { value: "closed", label: "Ditutup" },
+        { value: "closed", label: "Selesai" },
       ],
     },
     { key: "shift", label: "Shift", options: shifts },
@@ -126,18 +171,15 @@ function CashSessionFilterDrawer({
         >
           <SlidersHorizontal aria-hidden="true" />
           {active && (
-            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-ring" />
           )}
         </Button>
       </DrawerTrigger>
-      <DrawerContent
-        className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
-        aria-describedby={undefined}
-      >
-        <DrawerHeader className="shrink-0">
+      <DrawerContent aria-describedby={undefined}>
+        <DrawerHeader>
           <DrawerTitle>Filter riwayat shift</DrawerTitle>
         </DrawerHeader>
-        <div className="min-h-0 space-y-5 overflow-y-auto px-4 pb-4">
+        <DrawerBody className="space-y-5">
           <div className="space-y-2">
             <label htmlFor={`${id}-date-range`} className="text-sm font-medium">
               Rentang tanggal
@@ -156,19 +198,25 @@ function CashSessionFilterDrawer({
               <label htmlFor={`${id}-${key}`} className="text-sm font-medium">
                 {label}
               </label>
-              <SelectCombobox
-                id={`${id}-${key}`}
-                searchable={false}
-                options={[all, ...(options ?? [])]}
-                value={draft[key]}
-                onChange={(value) =>
-                  setDraft({ ...draft, [key]: value || "all" })
-                }
-              />
+              {key === "cashier" && cashiersLoading ? (
+                <SkeletonGroup label="Memuat kasir">
+                  <Skeleton className="h-10 w-full" />
+                </SkeletonGroup>
+              ) : (
+                <SelectCombobox
+                  id={`${id}-${key}`}
+                  searchable={false}
+                  options={[all, ...(options ?? [])]}
+                  value={draft[key]}
+                  onChange={(value) =>
+                    setDraft({ ...draft, [key]: value || "all" })
+                  }
+                />
+              )}
             </div>
           ))}
-        </div>
-        <DrawerFooter className="shrink-0 border-t">
+        </DrawerBody>
+        <DrawerFooter>
           <div className={cn("grid gap-2", hasDraftFilters && "grid-cols-2")}>
             {hasDraftFilters && (
               <Button
@@ -312,15 +360,13 @@ export function CashSessionPage({
                       }))
                     : undefined
                 }
+                cashiersLoading={users.isLoading}
               />
             </div>
             {list.isPending && (
-              <p
-                role="status"
-                className="py-12 text-center text-sm text-muted-foreground"
-              >
-                Memuat riwayat shift...
-              </p>
+              <SkeletonGroup label="Memuat riwayat shift">
+                <SkeletonRows rows={4} />
+              </SkeletonGroup>
             )}
             {list.isError && (
               <div className="space-y-3 py-12 text-center">
@@ -349,29 +395,21 @@ export function CashSessionPage({
                       <span className="flex items-start justify-between gap-3">
                         <span className="min-w-0">
                           <span className="block break-words text-sm font-semibold">
-                            {row.shift_title}
+                            Shift {row.shift_title}
                           </span>
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {row.shift_date}
                           </span>
                         </span>
-                        <span
-                          className={cn(
-                            "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium",
-                            row.status === "open" &&
-                              "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-                            row.status === "closed" &&
-                              "bg-muted text-muted-foreground",
-                          )}
+                        <StatusBadge
+                          tone={row.status === "open" ? "ready" : "neutral"}
+                          className="max-w-[55%] shrink-0 wrap-anywhere text-right"
                         >
                           {row.status === "open" && "Terbuka"}
-                          {row.status === "closed" &&
-                            row.close_type === "force" &&
-                            "Ditutup paksa"}
-                          {row.status === "closed" &&
-                            row.close_type !== "force" &&
-                            "Ditutup"}
-                        </span>
+                          {row.status === "closed" && "Selesai"}
+                          {row.status === "closed" && row.close_type === "force" && row.closed_by_name.trim() &&
+                            ` (${row.closed_by_name.trim()})`}
+                        </StatusBadge>
                       </span>
                       <span className="block text-sm font-medium tabular-nums">
                         {row.status === "closed"
@@ -407,10 +445,9 @@ export function CashSessionPage({
         }}
       >
         <DrawerContent
-          className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           aria-describedby={session ? detailDescriptionId : undefined}
         >
-          <DrawerHeader className="shrink-0">
+          <DrawerHeader>
             <DrawerTitle>
               {force ? "Tutup paksa shift" : "Detail shift"}
             </DrawerTitle>
@@ -420,11 +457,11 @@ export function CashSessionPage({
               </DrawerDescription>
             )}
           </DrawerHeader>
-          <div className="min-h-0 space-y-4 overflow-y-auto px-4 pb-4 text-sm">
+          <DrawerBody className="space-y-4 text-sm">
             {report.isPending && (
-              <p role="status" className="text-muted-foreground">
-                Memuat detail shift...
-              </p>
+              <SkeletonGroup label="Memuat detail shift">
+                <SkeletonRows />
+              </SkeletonGroup>
             )}
             {!report.isPending && report.isError && (
               <div className="space-y-2">
@@ -447,9 +484,9 @@ export function CashSessionPage({
                   <p className="font-medium">
                     {session.user_name} ({branchName(session.branch_id)})
                   </p>
-                  <p className="break-all font-mono text-xs text-muted-foreground">
+                  {/* <p className="break-all font-mono text-xs text-muted-foreground">
                     {session.session_id}
-                  </p>
+                  </p> */}
                 </div>
                 <CashSessionAmounts session={session} />
                 {force ? (
@@ -513,12 +550,12 @@ export function CashSessionPage({
                     {!!report.data?.by_method.length && (
                       <div className="space-y-2">
                         <h3 className="font-semibold">Metode pembayaran</h3>
-                        <ul className="divide-y">
+                        <ul className="">
                           {report.data.by_method.map(
                             ({ method, count, total }) => (
                               <li
                                 key={method}
-                                className="flex justify-between gap-2 py-2"
+                                className="flex justify-between gap-2 py-1"
                               >
                                 <span>
                                   {method} ({count})
@@ -534,24 +571,10 @@ export function CashSessionPage({
                       <div className="space-y-2">
                         <h3 className="font-semibold">Transaksi</h3>
                         <ul className="divide-y">
-                          {report.data.transactions.map(
-                            ({ id_trx, date, total, status }) => (
-                              <li
-                                key={id_trx}
-                                className="flex justify-between gap-2 py-2"
-                              >
-                                <span className="min-w-0 break-words">
-                                  {id_trx}
-                                  <span className="block text-xs text-muted-foreground">
-                                    {date} ({status})
-                                  </span>
-                                </span>
-                                <span className="shrink-0">
-                                  {formatCurrency(total)}
-                                </span>
-                              </li>
-                            ),
-                          )}
+                          {report.data.transactions.map((transaction) => (
+                            <ShiftTransactionRow key={transaction.id_trx} transaction={transaction}
+                              username={account?.account_username} />
+                          ))}
                         </ul>
                       </div>
                     )}
@@ -559,8 +582,8 @@ export function CashSessionPage({
                 )}
               </>
             )}
-          </div>
-          <DrawerFooter className="shrink-0 border-t">
+          </DrawerBody>
+          <DrawerFooter>
             {force && (
               <div className="grid grid-cols-2 gap-2">
                 <Button

@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
-import { DrawerFooter } from "@/components/ui/drawer";
+import { DrawerClose, DrawerFooter } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { InputNominal } from "@/components/input-nominal";
 import type { AdditionalFee, Discount } from "./payment-details";
@@ -38,7 +38,7 @@ export function PaymentAdjustment({
     <>
       <form
         id={id}
-        className="min-h-0 space-y-4 overflow-y-auto px-4 pb-4"
+        className="drawer-body space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (valid) onSave(name.trim(), amount, type);
@@ -107,11 +107,13 @@ export function PaymentAdjustment({
           )}
         </label>
       </form>
-      <DrawerFooter className="shrink-0 border-t">
+      <DrawerFooter>
         <div
-          className={cn("grid gap-2", initial ? "grid-cols-2" : "grid-cols-1")}
+          className={cn("grid gap-2", initial ? "grid-cols-3" : "grid-cols-2")}
         >
-          {/* <DrawerClose asChild><Button type="button" variant="outline">Batal</Button></DrawerClose> */}
+          <DrawerClose asChild>
+            <Button type="button" variant="outline">Batal</Button>
+          </DrawerClose>
           {initial && (
             <Button type="button" variant="destructive" onClick={onRemove}>
               Hapus

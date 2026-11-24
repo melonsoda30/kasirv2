@@ -5,9 +5,10 @@ import { Store } from "lucide-react";
 import { cn } from "cn";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import { isAdminAccount, useAuthStore, type Account } from "@/features/auth/auth-store";
 import { formatCurrency, formatNominal } from "@/lib/currency";
-import { DashboardLineChart } from "./dashboard-line-chart";
+import { DashboardBarChart } from "./dashboard-bar-chart";
 import { BestSales, TrendingProducts } from "./dashboard-sales";
 import { useDashboardQuery } from "./dashboard-api";
 
@@ -18,11 +19,12 @@ const summaryDate = new Intl.DateTimeFormat("id-ID", {
   timeZone: "Asia/Jakarta",
 });
 
-function DashboardSection<T>({ title, query, children, className }: {
+function DashboardSection<T>({ title, query, children, className, skeleton }: {
   title: string;
   query: UseQueryResult<T | null>;
   children: (data: T) => ReactNode;
   className?: string;
+  skeleton?: ReactNode;
 }) {
   const { data, isPending } = query;
   return (
@@ -31,7 +33,15 @@ function DashboardSection<T>({ title, query, children, className }: {
       {data != null && children(data)}
       {data === null && <p className="text-sm text-muted-foreground">Belum ada data.</p>}
       {data === undefined && isPending && (
-        <p role="status" className="text-sm text-muted-foreground">Memuat data...</p>
+        <SkeletonGroup label={`Memuat ${title}`} className="space-y-3">
+          {skeleton ?? (
+            <>
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+              <Skeleton className="h-5 w-3/5" />
+            </>
+          )}
+        </SkeletonGroup>
       )}
       {data === undefined && query.isError && (
         <div className="space-y-2">
@@ -54,7 +64,13 @@ function AdminDashboard({ account }: { account: Account }) {
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <DashboardSection title="Pendapatan" query={earnings} className="min-h-40">
+        <DashboardSection title="Pendapatan" query={earnings} className="min-h-40" skeleton={
+          <>
+            <Skeleton className="h-9 w-1/2" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-48 w-full sm:h-56" />
+          </>
+        }>
           {(data) => (
             <>
               <dl className="space-y-3">
@@ -73,13 +89,14 @@ function AdminDashboard({ account }: { account: Account }) {
                   </div>
                 </div>
               </dl>
-              <DashboardLineChart chart={data} description="Grafik garis pendapatan harian dalam rupiah" />
+              <DashboardBarChart chart={data} description="Grafik batang pendapatan harian dalam rupiah" />
             </>
           )}
         </DashboardSection>
-        <DashboardSection title="Profit harian" query={profit} className="flex min-h-32 flex-col">
+        <DashboardSection title="Profit harian" query={profit} className="flex min-h-32 flex-col"
+          skeleton={<Skeleton className="h-48 w-full sm:h-56" />}>
           {(data) => (
-            <DashboardLineChart chart={data} description="Grafik garis profit harian dalam rupiah" stretch />
+            <DashboardBarChart chart={data} description="Grafik batang profit harian dalam rupiah" stretch />
           )}
         </DashboardSection>
       </div>

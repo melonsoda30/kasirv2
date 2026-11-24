@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import { Pencil, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SkeletonImage } from '@/components/ui/skeleton-image'
 import { getAccountBranches, useAuthStore } from '@/features/auth/auth-store'
 import { SalesPage } from '@/features/sales/sales-page'
 import { API_BASE_URL } from '@/lib/api'
@@ -9,7 +9,6 @@ import { UserStatusDialog } from './user-status-dialog'
 import { canManageUsers, userDisplayName, type UserRecord } from './users-api'
 
 export function UserDetailPage({ user }: { user: UserRecord }) {
-  const [failedImage, setFailedImage] = useState('')
   const account = useAuthStore((state) => state.session?.account)
   const accountStore = account?.store
   const name = userDisplayName(user)
@@ -28,8 +27,8 @@ export function UserDetailPage({ user }: { user: UserRecord }) {
     <section aria-label="Profil pengguna" className="rounded-lg border bg-background p-4">
       <div className="flex items-center gap-3">
         <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-          {image && image !== failedImage ? <img src={image} alt={`Foto ${name}`} className="size-full object-cover" onError={() => setFailedImage(image)} />
-            : <UserRound className="size-7 text-muted-foreground" aria-hidden="true" />}
+          <SkeletonImage src={image} alt={`Foto ${name}`} className="size-full"
+            fallback={<UserRound className="size-7 text-muted-foreground" aria-hidden="true" />} />
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="break-words font-semibold">{name}</h2>

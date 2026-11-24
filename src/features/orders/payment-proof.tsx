@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
-import { Camera, ImagePlus } from "lucide-react";
+import { Camera, CircleAlert, ImagePlus, TriangleAlert } from "lucide-react";
 import { cn } from "cn";
 import { ImagePreview } from "@/components/image-input";
 import { Button } from "@/components/ui/button";
-import { DrawerClose, DrawerFooter } from "@/components/ui/drawer";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
+import { DrawerClose, DrawerBody, DrawerFooter } from "@/components/ui/drawer";
 import { MAX_PAYMENT_PROOF_SIZE } from "./payment-details";
 
 export function PaymentProof({
@@ -56,7 +57,7 @@ export function PaymentProof({
   const disabled = busy || reading;
   return (
     <>
-      <div className={cn("min-h-0 space-y-4 overflow-y-auto px-4 pb-4", required && "payment-step-body")}>
+      <DrawerBody className={cn("space-y-4", required && "payment-step-body")}>
         <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
@@ -98,22 +99,31 @@ export function PaymentProof({
             }}
           />
         </div>
-        {reading && <p role="status">Memuat pratinjau…</p>}
+        {reading && (
+          <SkeletonGroup label="Memuat pratinjau bukti pembayaran">
+            <Skeleton className="h-52 w-full rounded-lg sm:h-64" />
+          </SkeletonGroup>
+        )}
         {proof && (
-          <div className="overflow-hidden rounded-lg border">
+          <figure className="overflow-hidden rounded-lg border">
             <ImagePreview
               src={proof.preview}
               label="Pratinjau bukti pembayaran"
             />
-          </div>
+            <figcaption className="flex items-start gap-2 border-t bg-warning px-3 py-2 text-sm text-warning-foreground">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 fill-warning-indicator text-status-icon-foreground" aria-hidden="true" />
+              Periksa bukti pembayaran sebelum menyimpan.
+            </figcaption>
+          </figure>
         )}
         {(error || saveError) && (
-          <p role="alert" className="text-destructive">
+          <p role="alert" className="flex items-start gap-2 text-destructive">
+            <CircleAlert className="mt-0.5 size-4 shrink-0 fill-destructive-indicator text-status-icon-foreground" aria-hidden="true" />
             {error || saveError}
           </p>
         )}
-      </div>
-      <DrawerFooter className="shrink-0 border-t">
+      </DrawerBody>
+      <DrawerFooter>
         <div className="grid grid-cols-2 gap-2">
           <DrawerClose asChild>
             <Button type="button" variant="outline" disabled={busy}>

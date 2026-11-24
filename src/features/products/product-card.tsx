@@ -4,6 +4,8 @@ import { Link } from "@tanstack/react-router";
 import { Package } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Dialog,
   DialogTrigger,
@@ -15,7 +17,9 @@ import {
 import {
   Drawer,
   DrawerTrigger,
+  DrawerBody,
   DrawerContent,
+  DrawerHeader,
   DrawerTitle,
   DrawerDescription,
   DrawerFooter,
@@ -24,22 +28,24 @@ import type { Product } from "./sample-products";
 import { cn } from "@/lib/cn";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateProductStatus } from "./product-api";
+import { isLowStockQuantity } from "./product-stock";
 import { isAxiosError } from "axios";
 
 export function ProductImage({
   product,
   detail = false,
+  showActiveStatus = true,
 }: {
   product: Product;
   detail?: boolean;
+  showActiveStatus?: boolean;
 }) {
-  const [failedSource, setFailedSource] = useState<string | null>(null);
   const source =
     product.photo ||
     (product.image
       ? `https://images.unsplash.com/${product.image}?auto=format&fit=crop&w=640&q=80`
       : "");
-  const showImage = !!source && failedSource !== source;
+  const outOfStock = product.active && product.stock <= 0;
   return (
     <div
       className={cn(
@@ -48,40 +54,27 @@ export function ProductImage({
         detail && "rounded p-4",
       )}
     >
-      {!showImage && (
-        <Package
-          size={40}
-          className="text-muted-foreground"
-          aria-label={product.title}
-        />
+      <SkeletonImage src={source} alt={product.title} loading="lazy" className="aspect-square"
+        imageClassName={cn(
+          "size-full object-cover",
+          !detail && !product.active && "grayscale opacity-40",
+          !detail && outOfStock && "grayscale opacity-60",
+        )}
+        fallback={<Package size={40} className="text-muted-foreground" aria-label={product.title} />}
+      />
+      {!detail && outOfStock && (
+        <StatusBadge tone="danger" className="absolute top-2 left-2">Habis</StatusBadge>
       )}
-      {showImage && (
-        <img
-          src={source}
-          alt={product.title}
-          // width={640}
-          // height={detail ? 480 : 640}
-          loading="lazy"
-          className={cn(
-            "h-auto w-full object-cover aspect-square",
-            !detail && !product.active && "grayscale opacity-40",
-            !detail && product.active && product.stock === 0 && "grayscale opacity-60",
-          )}
-          onError={() => setFailedSource(source)}
-        />
-      )}
-      {!detail && (
+      {showActiveStatus && !detail && !outOfStock && (
         <span
           className={cn(
             "absolute left-2 top-2 rounded px-2 py-1 text-xs font-medium",
             !product.active && "bg-zinc-800 text-white",
-            product.active && product.stock === 0 && "bg-destructive text-white",
-            product.active && product.stock !== 0 && "bg-background/95 text-foreground",
+            product.active && "bg-background/95 text-foreground",
           )}
         >
           {!product.active && "Nonaktif"}
-          {product.active && product.stock === 0 && "Habis"}
-          {product.active && product.stock !== 0 && "Aktif"}
+          {product.active && "Aktif"}
         </span>
       )}
     </div>
@@ -89,16 +82,11 @@ export function ProductImage({
 }
 
 function Stock({ product }: { product: Product }) {
-  return (
-    <span
-      className={cn(
-        "shrink-0 text-xs",
-        product.stock === 0 ? "text-destructive" : "text-muted-foreground",
-      )}
-    >
-      {product.stock === 0 ? "Habis" : `${product.stock} tersisa`}
-    </span>
-  );
+  if (product.stock <= 0) return <StatusBadge tone="danger" className="shrink-0">Stok habis</StatusBadge>;
+  if (product.active && isLowStockQuantity(product.stock)) {
+    return <StatusBadge tone="warning" className="shrink-0">Hampir habis · {product.stock}</StatusBadge>;
+  }
+  return <span className="shrink-0 text-xs text-muted-foreground">{product.stock} tersisa</span>;
 }
 
 export function ProductCard({
@@ -159,25 +147,21 @@ export function ProductCard({
           </div>
         </button>
       </DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <div className="min-h-0 overflow-y-auto">
-          <div className="relative mt-4">
-            <ProductImage product={product} detail />
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="break-words">{product.title}</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody className="space-y-3">
+          <ProductImage product={product} detail />
+          <div className="flex items-baseline justify-between gap-4">
+            <ProductPrice product={product} detail />
+            <Stock product={product} />
           </div>
-          <div className="space-y-3 px-4 pt-5 pb-6">
-            <DrawerTitle className="text-xl leading-7 font-semibold tracking-tight">
-              {product.title}
-            </DrawerTitle>
-            <div className="flex items-baseline justify-between gap-4">
-              <ProductPrice product={product} detail />
-              <Stock product={product} />
-            </div>
-            <DrawerDescription className="pt-1 text-sm leading-6 whitespace-pre-wrap wrap-break-words">
-              {product.description || "Belum ada deskripsi."}
-            </DrawerDescription>
-          </div>
-        </div>
-        <DrawerFooter className="shrink-0">
+          <DrawerDescription className="leading-6 whitespace-pre-wrap wrap-break-words">
+            {product.description || "Belum ada deskripsi."}
+          </DrawerDescription>
+        </DrawerBody>
+        <DrawerFooter>
           <div className="grid grid-cols-2 gap-2">
             <Button asChild>
               <Link

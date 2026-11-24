@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { getCashierBranch, useAuthStore } from '@/features/auth/auth-store'
 import { fetchOrderProducts } from '@/features/products/product-api'
+import { isLowStockQuantity } from '@/features/products/product-stock'
 import type { Product } from '@/features/products/sample-products'
 import { productKey } from './order-store'
 
 export function isLowStock(product: Product, remaining = product.stock) {
-  return product.active && remaining > 0 && remaining <= 5
+  return product.active && isLowStockQuantity(remaining)
 }
 
 const indexProducts = (products: Product[]) => ({

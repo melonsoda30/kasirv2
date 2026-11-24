@@ -10,6 +10,7 @@ export interface SalesFilters {
 }
 
 export type TransactionFilters = Partial<Pick<SalesFilters, "dateRange" | "paymentMethod" | "cashier">> & {
+  branchId?: string;
   sales?: string;
   status?: "all" | "pending" | "completed" | "cancelled";
 };

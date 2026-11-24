@@ -3,7 +3,7 @@ import { Minus, Pencil, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Drawer, DrawerTrigger, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '@/components/ui/drawer'
+import { Drawer, DrawerTrigger, DrawerBody, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from '@/components/ui/drawer'
 import { ProductImage } from '@/features/products/product-card'
 import { formatCurrency } from '@/lib/currency'
 import { useOrderProducts } from './order-products'
@@ -28,10 +28,13 @@ export function EditOrderItem({ orderId, item }: { orderId: string; item: OrderL
   }
   return <Drawer open={open} onOpenChange={(next) => { if (next) setQuantity(item.quantity); setOpen(next) }}>
     <DrawerTrigger asChild><Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={`Edit ${item.product.title}`} title="Edit item"><Pencil aria-hidden="true" /></Button></DrawerTrigger>
-    <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)]">
-      <div className="min-h-0 overflow-y-auto"><div className="mt-4"><ProductImage product={product} detail /></div>
-        <DrawerHeader className="text-left"><DrawerTitle>{item.product.title}</DrawerTitle><DrawerDescription>{formatCurrency(item.unitPrice)} / item</DrawerDescription></DrawerHeader></div>
-      <DrawerFooter className="border-t">
+    <DrawerContent>
+      <DrawerHeader>
+        <DrawerTitle className="break-words">{item.product.title}</DrawerTitle>
+        <DrawerDescription>{formatCurrency(item.unitPrice)} / item</DrawerDescription>
+      </DrawerHeader>
+      <DrawerBody><ProductImage product={product} detail /></DrawerBody>
+      <DrawerFooter>
         <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="icon" aria-label="Kurangi jumlah" disabled={quantity <= 1} onClick={() => setQuantity((value) => value - 1)}><Minus /></Button>
           <Input type="number" min={1} max={maximum} step={1} inputMode="numeric" aria-label="Jumlah produk" className="w-16 text-center" value={quantity || ''} onChange={(event) => setQuantity(Number(event.target.value))} />

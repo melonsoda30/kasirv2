@@ -48,10 +48,10 @@ export function BottomNav() {
             to={to}
             activeOptions={{ exact: to === "/" }}
             className="group flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-foreground motion-reduce:transition-none"
-            activeProps={{ className: "text-foreground", "aria-current": "page" }}
+            activeProps={{ className: "text-accent-foreground", "aria-current": "page" }}
             inactiveProps={{ className: "text-muted-foreground hover:text-foreground" }}
           >
-            <span className="grid h-8 w-12 place-items-center rounded-xl transition-colors group-aria-[current=page]:bg-muted group-hover:bg-muted/60 motion-reduce:transition-none">
+            <span className="grid h-8 w-12 place-items-center rounded-xl transition-colors group-hover:bg-muted/60 group-aria-[current=page]:bg-primary group-aria-[current=page]:text-primary-foreground group-hover:group-aria-[current=page]:bg-primary-hover motion-reduce:transition-none">
               <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
             </span>
             <span>{label}</span>

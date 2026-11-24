@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerTrigger,
+  DrawerBody,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
@@ -49,16 +50,16 @@ export function ProductFilterDrawer({
         >
           <SlidersHorizontal aria-hidden="true" />
           {active && (
-            <div className="size-2 rounded-full bg-black absolute -top-0.5 -right-0.5" />
+            <div className="size-2 rounded-full bg-ring absolute -top-0.5 -right-0.5" />
           )}
         </Button>
       </DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DrawerHeader className="shrink-0">
+      <DrawerContent>
+        <DrawerHeader>
           <DrawerTitle>Filter produk</DrawerTitle>
           {/* <DrawerDescription>Pilih store dan status, lalu simpan untuk menerapkan.</DrawerDescription> */}
         </DrawerHeader>
-        <div className="min-h-0 space-y-6 overflow-y-auto px-4 py-4">
+        <DrawerBody className="space-y-6 py-4">
           <fieldset className="min-w-0 space-y-3">
             <legend className="mb-2 text-sm font-medium">Store</legend>
             <div className="flex flex-wrap gap-2">
@@ -102,8 +103,8 @@ export function ProductFilterDrawer({
               ))}
             </div>
           </fieldset>
-        </div>
-        <DrawerFooter className="shrink-0">
+        </DrawerBody>
+        <DrawerFooter>
           <Button
             type="button"
             onClick={() => {

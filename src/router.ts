@@ -1,4 +1,5 @@
 import { createRouter } from '@tanstack/react-router'
+import { RouteSkeleton } from './components/route-skeleton'
 import { queryClient } from './lib/query-client'
 import { routeTree } from './routeTree.gen'
 import { isAdminAccount, useAuthStore } from './features/auth/auth-store'
@@ -8,6 +9,9 @@ export const router = createRouter({
   context: { queryClient },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
+  defaultPendingComponent: RouteSkeleton,
+  defaultPendingMs: 200,
+  defaultPendingMinMs: 0,
   defaultViewTransition: typeof window !== 'undefined' &&
     window.CSS?.supports('selector(:active-view-transition-type(page))')
     ? {

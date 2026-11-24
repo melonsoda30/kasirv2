@@ -1,4 +1,4 @@
-﻿import { useState, type FormEvent, type ReactNode } from "react";
+﻿import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -17,6 +17,7 @@ export function SettingCard({
   active,
   summary,
   preview,
+  actions,
   onSave,
   children,
   editOnActivate = false,
@@ -28,6 +29,7 @@ export function SettingCard({
   active: boolean;
   summary?: string;
   preview?: ReactNode;
+  actions?: ReactNode;
   onSave: (active: boolean, values?: FormData) => Promise<void>;
   children?: ReactNode;
   editOnActivate?: boolean;
@@ -36,13 +38,15 @@ export function SettingCard({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
+  const formId = useId();
+  const [pendingAction, setPendingAction] = useState<"toggle" | "save" | null>(null);
+  const pending = pendingAction !== null;
   const showEditor = (active || editOnActivate || editWhenInactive) && !!children;
   const saveLabel = active || editWhenInactive ? "Simpan" : "Aktifkan";
 
   async function persist(nextActive: boolean, values?: FormData) {
     if (pending) return;
-    setPending(true);
+    setPendingAction(values ? "save" : "toggle");
     try {
       await onSave(nextActive, values);
       setOpen(false);
@@ -50,7 +54,7 @@ export function SettingCard({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal menyimpan pengaturan.");
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
@@ -68,63 +72,59 @@ export function SettingCard({
 
   return (
     <Drawer open={open} onOpenChange={changeOpen}>
-      <div className={cn(preview && "bento-surface overflow-hidden")}>
-        <DrawerTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex w-full cursor-pointer items-center gap-3 p-4 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              preview ? "border-b" : "bento-surface",
-            )}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold">{title}</span>
-              {active && summary && <span className="mt-1 block text-muted-foreground">{summary}</span>}
-            </span>
-            <span
-              className={
-                cn(active ? "font-medium text-primary" : "text-muted-foreground")
-              }
+      <div className={cn((preview || actions) && "bento-surface overflow-hidden")}>
+        <div className={cn(actions && "flex items-center", preview && "border-b")}>
+          <DrawerTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex w-full min-w-0 cursor-pointer items-center gap-3 p-4 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                !preview && !actions && "bento-surface",
+              )}
             >
-              {active ? "Aktif" : "Nonaktif"}
-            </span>
-            <ChevronRight
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-          </button>
-        </DrawerTrigger>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words font-semibold">{title}</span>
+                {active && summary && <span className="mt-1 block text-muted-foreground">{summary}</span>}
+              </span>
+              <span className={cn(active ? "font-medium text-accent-foreground" : "text-muted-foreground")}>
+                {active ? "Aktif" : "Nonaktif"}
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </button>
+          </DrawerTrigger>
+          {actions && <div className="shrink-0 pr-3">{actions}</div>}
+        </div>
         {preview}
       </div>
-      <DrawerContent
-        aria-describedby={undefined}
-        className="product-drawer pb-[env(safe-area-inset-bottom)]"
-      >
+      <DrawerContent aria-describedby={undefined}>
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>
         </DrawerHeader>
         {showEditor && (
-          <form onSubmit={save} className="min-h-0 overflow-y-auto">
-            <fieldset disabled={pending} className="min-w-0 px-4">{open && children}</fieldset>
+          <>
+            <form id={formId} onSubmit={save} className="drawer-body">
+              <fieldset disabled={pending} className="min-w-0">{open && children}</fieldset>
+            </form>
             <DrawerFooter className="flex-row">
               {(active || editWhenInactive) && <Button
                 type="button"
                 variant="outline"
                 className="flex-1"
                 disabled={pending}
+                loading={pendingAction === "toggle"}
                 onClick={() => void persist(!active)}
               >
                 {active ? "Nonaktifkan" : "Aktifkan"}
               </Button>}
-              <Button type="submit" className="flex-1" disabled={pending || saveDisabled}>
-                {pending ? "Menyimpan..." : saveLabel}
+              <Button type="submit" form={formId} className="flex-1" disabled={pending || saveDisabled} loading={pendingAction === "save"}>
+                {saveLabel}
               </Button>
             </DrawerFooter>
-          </form>
+          </>
         )}
         {!showEditor && (
           <DrawerFooter>
-            <Button type="button" disabled={pending} onClick={() => void persist(!active)}>
+            <Button type="button" loading={pending} onClick={() => void persist(!active)}>
               {active ? "Nonaktifkan" : "Aktifkan"}
             </Button>
           </DrawerFooter>

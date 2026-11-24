@@ -3,6 +3,7 @@ import { Pencil, Plus } from "lucide-react";
 import { InputNominal } from "@/components/input-nominal";
 import { SelectCombobox } from "@/components/select-combobox";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import {
   DrawerContent,
   DrawerFooter,
@@ -139,7 +140,7 @@ export function SalePaymentEditor({
     <>
       <form
         id={formId}
-        className="flow-panel min-h-0 space-y-4 overflow-y-auto p-4"
+        className="drawer-body flow-panel space-y-4 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (valid && method && !busy)
@@ -156,19 +157,24 @@ export function SalePaymentEditor({
           <label htmlFor={`${formId}-method`} className="font-medium">
             Metode pembayaran
           </label>
-          <SelectCombobox
-            id={`${formId}-method`}
-            searchable={false}
-            placeholder="Pilih metode pembayaran"
-            value={method?.code ?? ""}
-            options={methods.map(({ code, title }) => ({
-              value: code,
-              label: title,
-            }))}
-            disabled={busy || query.isPending}
-            onChange={setSelected}
-          />
-          {query.isPending && <p role="status">Memuat metode pembayaran...</p>}
+          {query.isPending ? (
+            <SkeletonGroup label="Memuat metode pembayaran">
+              <Skeleton className="h-10 w-full" />
+            </SkeletonGroup>
+          ) : (
+            <SelectCombobox
+              id={`${formId}-method`}
+              searchable={false}
+              placeholder="Pilih metode pembayaran"
+              value={method?.code ?? ""}
+              options={methods.map(({ code, title }) => ({
+                value: code,
+                label: title,
+              }))}
+              disabled={busy}
+              onChange={setSelected}
+            />
+          )}
           {query.isError && (
             <div className="flex items-center justify-between gap-2">
               <p role="alert">Metode pembayaran gagal dimuat.</p>
@@ -281,7 +287,7 @@ export function SalePaymentEditor({
           )}
         </dl>
       </form>
-      <DrawerFooter className="shrink-0 border-t">
+      <DrawerFooter>
         {error && (
           <p role="alert" className="text-destructive">
             {error}
@@ -313,12 +319,11 @@ export function SalePaymentEditor({
         }}
       >
         <DrawerContent
-          className="product-drawer pb-[env(safe-area-inset-bottom)]"
           aria-describedby={undefined}
         >
           {adjustment && (
             <>
-              <DrawerHeader className="shrink-0">
+              <DrawerHeader>
                 <DrawerTitle>
                   {initial ? "Edit" : "Tambah"}{" "}
                   {adjustment.kind === "fee" ? "biaya tambahan" : "diskon"}

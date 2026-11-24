@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ImageOff, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { ImageOff, ImagePlus, Trash2 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
 
 export interface UploadStatus {
   busy: boolean;
@@ -9,23 +11,16 @@ export interface UploadStatus {
 }
 
 export function ImagePreview({ src, label }: { src: string; label: string }) {
-  const [failedSource, setFailedSource] = useState("");
-
   return (
     <figure className="relative grid h-52 place-items-center bg-muted/45 p-4 sm:h-64">
-      {src !== failedSource ? (
-        <img
-          src={src}
-          alt={label}
-          className="absolute inset-0 size-full object-contain p-4"
-          onError={() => setFailedSource(src)}
-        />
-      ) : (
-        <figcaption className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-          <ImageOff className="size-5" aria-hidden="true" />
-          Pratinjau tidak tersedia
-        </figcaption>
-      )}
+      <SkeletonImage src={src} alt={label} className="absolute inset-0" imageClassName="size-full object-contain p-4"
+        fallback={
+          <figcaption className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+            <ImageOff className="size-5" aria-hidden="true" />
+            Pratinjau tidak tersedia
+          </figcaption>
+        }
+      />
     </figure>
   );
 }
@@ -130,7 +125,7 @@ export function ImageInput({
       <div
         className={cn(
           "relative overflow-hidden rounded-lg border transition-colors",
-          dragging && "border-primary bg-primary/5",
+          dragging && "border-ring bg-accent",
           !dragging && value && "border-input bg-background",
           !dragging && !value && "border-input bg-muted/20",
         )}
@@ -188,7 +183,7 @@ export function ImageInput({
           )}
           {!value && (
             <>
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-primary">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-background text-accent-foreground">
                 <ImagePlus className="size-5" aria-hidden="true" />
               </span>
               <span className="grid min-w-0 gap-0.5">
@@ -220,19 +215,15 @@ export function ImageInput({
             <Trash2 aria-hidden="true" />
           </Button>
         )}
+        {status.busy && (
+          <SkeletonGroup label="Memproses gambar" className="absolute inset-0 z-20 bg-background">
+            <Skeleton className="size-full rounded-none" />
+          </SkeletonGroup>
+        )}
       </div>
       {value && (
         <p id={`${id}-help`} className="text-xs text-muted-foreground">
           JPG, PNG, atau WebP. Maksimal 5 MB.
-        </p>
-      )}
-      {status.busy && (
-        <p
-          role="status"
-          className="flex items-center gap-2 text-xs text-muted-foreground"
-        >
-          <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-          Memproses gambar...
         </p>
       )}
       {status.error && (

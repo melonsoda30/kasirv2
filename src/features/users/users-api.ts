@@ -30,11 +30,12 @@ export type UserFields = {
   address?: string;
   level_user?: string;
   is_cashier?: boolean;
+  branch_id?: string;
   img?: File;
 };
 
 export type UserChange =
-  | { action: "add_user"; fields: UserFields & { username: string; password?: string; branch_id?: string } }
+  | { action: "add_user"; fields: UserFields & { username: string; password?: string } }
   | { action: "edit_user"; userId: string; fields: UserFields }
   | { action: "status_user"; userId: string; status: UserRecord["user_status"] };
 
@@ -91,11 +92,11 @@ export async function changeUser(change: UserChange) {
       if (fields[field] !== undefined) data.set(field, fields[field].trim());
     }
     if (fields.is_cashier !== undefined) data.set("is_cashier", fields.is_cashier ? "1" : "0");
+    const branchId = fields.branch_id?.trim();
+    if (branchId) data.set("branch_id", branchId);
     if (change.action === "add_user") {
-      const { password, branch_id } = change.fields;
+      const { password } = change.fields;
       if (password) data.set("password", password);
-      const branchId = branch_id?.trim();
-      if (branchId) data.set("branch_id", branchId);
     }
     if (data instanceof FormData && photo) data.set("img", photo, photo.name);
   }

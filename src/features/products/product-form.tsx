@@ -3,6 +3,7 @@ import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { InputNominal } from "@/components/input-nominal";
 import { SelectCombobox } from "@/components/select-combobox";
@@ -253,9 +254,9 @@ export function ProductForm({ product }: { product?: Product }) {
                   )}
                 </div>
                 {categories.isPending && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Memuat kategori...
-                  </p>
+                  <SkeletonGroup label="Memuat kategori" className="flex flex-wrap gap-2">
+                    {[0, 1, 2].map((index) => <Skeleton key={index} className="h-9 w-20 rounded-full" />)}
+                  </SkeletonGroup>
                 )}
                 {categories.isError && (
                   <div className="space-y-2">

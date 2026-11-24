@@ -12,6 +12,7 @@ import { Clock, RotateCcwClock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import {
   Drawer,
   DrawerClose,
@@ -88,9 +89,10 @@ export function CashSessionControl({
   const queryClient = useQueryClient();
   const scope = cashSessionScope(account);
   const session = current.data?.session;
-  const active = session?.status === "open" && (!branch || session.branch_id === branch.id)
-    ? session
-    : null;
+  const active =
+    session?.status === "open" && (!branch || session.branch_id === branch.id)
+      ? session
+      : null;
   const canOpenAtBranch = !branch || account?.store?.branch_id === branch.id;
   const shiftName = active?.shift_title || "Shift aktif";
   const shiftHours =
@@ -301,15 +303,20 @@ export function CashSessionControl({
         </div>
       )}
       {current.isPending && (
-        <p role="status" className="text-muted-foreground">
-          Memeriksa shift...
-        </p>
+        <SkeletonGroup label="Memeriksa shift" className="space-y-2">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+        </SkeletonGroup>
       )}
       {current.isSuccess && active && (
         <div className="space-y-3">
           <div className="space-y-1">
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
               <p className="min-w-0 break-words font-semibold">
+                <span
+                  aria-hidden="true"
+                  className="mr-1.5 inline-block size-2 rounded-full border border-ready-foreground bg-ready-indicator align-middle"
+                />
                 {active.shift_title
                   ? `Shift ${active.shift_title} aktif`
                   : shiftName}
@@ -359,7 +366,8 @@ export function CashSessionControl({
       )}
       {current.isSuccess && !active && !canOpenAtBranch && (
         <p role="status" className="text-muted-foreground">
-          Untuk membuka shift di {branch?.name}, gunakan akun yang terdaftar di cabang ini.
+          Untuk membuka shift di {branch?.name}, gunakan akun yang terdaftar di
+          cabang ini.
         </p>
       )}
       {canOpenShift && (
@@ -369,24 +377,31 @@ export function CashSessionControl({
               ? `Shift ditutup pukul ${closedAt}`
               : "Shift belum dibuka"}
           </p>
-          {incoming.data?.length ? (
-            incoming.data.map((session) => (
-              <div key={session.session_id} className="space-y-2">
-                <p>
-                  Ada serah terima{" "}
-                  {formatCurrency(session.handover_amount ?? 0)} dari{" "}
-                  {session.handover_from_user_name || session.user_name}.
-                </p>
-                <Button
-                  className="w-full"
-                  type="button"
-                  onClick={() => show("open", session)}
-                >
-                  Terima dan buka shift
-                </Button>
-              </div>
-            ))
-          ) : (
+          {incoming.isPending && (
+            <SkeletonGroup
+              label="Memeriksa serah terima shift"
+              className="space-y-2"
+            >
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </SkeletonGroup>
+          )}
+          {incoming.data?.map((session) => (
+            <div key={session.session_id} className="space-y-2">
+              <p>
+                Ada serah terima {formatCurrency(session.handover_amount ?? 0)}{" "}
+                dari {session.handover_from_user_name || session.user_name}.
+              </p>
+              <Button
+                className="w-full"
+                type="button"
+                onClick={() => show("open", session)}
+              >
+                Terima dan buka shift
+              </Button>
+            </div>
+          ))}
+          {!incoming.isPending && !incoming.data?.length && (
             <p className="text-muted-foreground">
               Buka shift untuk menerima pembayaran.
             </p>
@@ -404,6 +419,7 @@ export function CashSessionControl({
             <Button
               variant="ghost"
               size="sm"
+              loading={incoming.isFetching}
               onClick={() => void incoming.refetch()}
             >
               Periksa ulang serah terima
@@ -428,7 +444,12 @@ export function CashSessionControl({
                 active && shiftHours ? `${shiftName}, ${shiftHours}` : undefined
               }
             >
-              <Clock aria-hidden="true" />
+              <Clock
+                className={cn(
+                  active && "fill-ready-indicator text-status-icon-foreground",
+                )}
+                aria-hidden="true"
+              />
               {!active && (canOpenShift ? "Buka shift" : "Shift")}
               {active && (
                 <span
@@ -498,7 +519,6 @@ export function CashSessionControl({
         }}
       >
         <DrawerContent
-          className="product-drawer pb-[env(safe-area-inset-bottom)]"
           aria-describedby={undefined}
           onCloseAutoFocus={
             inPopover
@@ -511,12 +531,12 @@ export function CashSessionControl({
         >
           {dialogStep && (
             <>
-              <DrawerHeader className="shrink-0">
+              <DrawerHeader>
                 <DrawerTitle>{titles[dialogStep]}</DrawerTitle>
               </DrawerHeader>
               <form
                 id={formId}
-                className="min-h-0 space-y-4 overflow-y-auto px-4 pb-4"
+                className="drawer-body space-y-4"
                 onSubmit={(event) => void submit(event)}
               >
                 {active && dialogStep !== "open" && (
@@ -561,27 +581,31 @@ export function CashSessionControl({
                     <label htmlFor={choiceId} className="font-medium">
                       Kasir penerima
                     </label>
-                    <SelectCombobox
-                      id={choiceId}
-                      searchable={false}
-                      placeholder="Pilih kasir"
-                      disabled={busy || !candidates.data?.length}
-                      options={
-                        candidates.data?.map(({ id, fullname }) => ({
-                          value: id,
-                          label: fullname,
-                        })) ?? []
-                      }
-                      value={recipient}
-                      onChange={setRecipient}
-                    />
-                    {candidates.isPending && (
-                      <p role="status">Memuat kasir...</p>
+                    {candidates.isPending ? (
+                      <SkeletonGroup label="Memuat kasir">
+                        <Skeleton className="h-10 w-full" />
+                      </SkeletonGroup>
+                    ) : (
+                      <SelectCombobox
+                        id={choiceId}
+                        searchable={false}
+                        placeholder="Pilih kasir"
+                        disabled={busy || !candidates.data?.length}
+                        options={
+                          candidates.data?.map(({ id, fullname }) => ({
+                            value: id,
+                            label: fullname,
+                          })) ?? []
+                        }
+                        value={recipient}
+                        onChange={setRecipient}
+                      />
                     )}
                     {candidates.isError && (
                       <Button
                         type="button"
                         variant="outline"
+                        loading={candidates.isFetching}
                         onClick={() => void candidates.refetch()}
                       >
                         Muat ulang daftar kasir
@@ -650,7 +674,7 @@ export function CashSessionControl({
                     role="status"
                     className={cn(
                       difference < 0 && "text-destructive",
-                      difference === 0 && "text-emerald-700 dark:text-emerald-400",
+                      difference === 0 && "text-success-foreground",
                       difference > 0 && "text-blue-700 dark:text-blue-400",
                     )}
                   >
@@ -680,7 +704,7 @@ export function CashSessionControl({
                   </p>
                 )}
               </form>
-              <DrawerFooter className="shrink-0 border-t">
+              <DrawerFooter>
                 <div className="grid grid-cols-2 gap-2">
                   <DrawerClose asChild>
                     <Button type="button" variant="outline" disabled={busy}>
@@ -714,21 +738,28 @@ export function CashSessionControl({
 
 export function CashSessionAmounts({ session }: { session: CashSession }) {
   const rows = [
-    ["Modal awal", session.opening_cash],
+    ["Modal cash", session.opening_cash],
     ["Tunai masuk", session.cash_in],
-    ["Omzet", session.omzet],
-    ["Saldo Sistem", session.expected_cash],
+    ["Saldo cash", session.expected_cash],
   ] as const;
   return (
-    <dl className="space-y-2 rounded-lg border p-3">
-      {rows.map(([label, amount]) => (
-        <div key={label} className="flex justify-between gap-3">
-          <dt>{label}</dt>
-          <dd className="shrink-0 font-medium tabular-nums">
-            {formatCurrency(amount)}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className="grid gap-2">
+      <dl className="space-y-2 rounded-lg border p-3">
+        {rows.map(([label, amount]) => (
+          <div key={label} className="flex justify-between gap-3">
+            <dt>{label}</dt>
+            <dd className="shrink-0 font-medium tabular-nums">
+              {formatCurrency(amount)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <dl className="flex justify-between gap-3 rounded-lg border p-3">
+        <dt>Omzet</dt>
+        <dd className="shrink-0 font-semibold tabular-nums">
+          {formatCurrency(session.omzet)}
+        </dd>
+      </dl>
+    </div>
   );
 }

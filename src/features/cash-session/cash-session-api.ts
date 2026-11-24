@@ -114,10 +114,24 @@ const cashSessionList = z.object({ sessions: z.array(sessionSchema), count: amou
 
 export const fetchCashSessions = (filters: Record<string, string>, signal?: AbortSignal) =>
   shiftRequest('list_session', cashSessionList, { filters, signal, emptyData: { sessions: [], count: 0 } }).then(({ data }) => data)
+
+const reportTransactionSchema = z.object({
+  id_trx: identifier,
+  date: text,
+  total: amount,
+  payment_method: text,
+  trx_payment: text,
+  status: text,
+}).transform(({ payment_method, trx_payment, ...transaction }) => ({
+  ...transaction,
+  payment_method: payment_method.trim() || trx_payment.trim(),
+}))
+export type CashSessionReportTransaction = z.output<typeof reportTransactionSchema>
+
 export const fetchCashSessionReport = (sessionId: string, signal?: AbortSignal) =>
   shiftRequest('session_report', z.object({
     session: sessionSchema,
-    transactions: z.array(z.object({ id_trx: identifier, date: text, total: amount, payment_method: text, status: text })),
+    transactions: z.array(reportTransactionSchema),
     by_method: z.array(z.object({ method: z.string(), count: amount, total: amount })),
   }), { filters: { session_id: sessionId }, signal }).then(({ data }) => data)
 

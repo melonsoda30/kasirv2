@@ -69,7 +69,7 @@ export function LowStockReminder({ scope, products, ready }: {
       <DialogContent showCloseButton={false} className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <TriangleAlert className="size-4 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            <TriangleAlert className="size-4 fill-warning-indicator text-status-icon-foreground" aria-hidden="true" />
             Stok hampir habis
           </DialogTitle>
           <DialogDescription>

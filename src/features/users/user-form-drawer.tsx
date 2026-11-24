@@ -21,8 +21,8 @@ export function UserFormDrawer({ user, children }: { user: UserRecord; children:
       else close();
     }}>
       <DrawerTrigger asChild>{children}</DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DrawerHeader className="shrink-0">
+      <DrawerContent>
+        <DrawerHeader>
           <DrawerTitle>Edit pengguna</DrawerTitle>
           <DrawerDescription className="sr-only">Form data pengguna.</DrawerDescription>
         </DrawerHeader>

@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import { DrawerFooter } from "@/components/ui/drawer";
 import { ImageInput, type UploadStatus } from "@/components/image-input";
 import { SelectCombobox } from "@/components/select-combobox";
@@ -22,32 +23,43 @@ const accessOptions = [
   { value: "kasir", label: "Kasir" },
 ];
 
-function BranchField({ store, value, onChange, disabled }: {
+function BranchField({ store, value, onChange, disabled, editing = false }: {
   store: NonNullable<Account["store"]>;
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
+  editing?: boolean;
 }) {
   const id = useId();
-  const { data } = useStore();
+  const { data, isLoading } = useStore();
   const branches = data?.store_id === store.id ? data.store_branch ?? [] : getAccountBranches(store);
   const options = [
-    { value: "", label: "Gunakan penempatan bawaan" },
+    ...(!editing ? [{ value: "", label: "Gunakan penempatan bawaan" }] : []),
     ...branches.filter(({ id }) => id !== "all").map(({ id, name }) => ({ value: id, label: name })),
   ];
+  if (editing && value && !options.some((option) => option.value === value)) {
+    options.unshift({ value, label: value === "all" ? "Semua cabang" : value });
+  }
 
   return (
     <div className="space-y-2">
       <label id={`${id}-label`} htmlFor={id} className="block text-sm font-medium">Cabang</label>
-      <SelectCombobox
-        id={id}
-        aria-labelledby={`${id}-label`}
-        options={options}
-        value={value}
-        onChange={onChange}
-        disabled={disabled}
-        searchable={false}
-      />
+      {isLoading && branches.length === 0 ? (
+        <SkeletonGroup label="Memuat cabang">
+          <Skeleton className="h-10 w-full" />
+        </SkeletonGroup>
+      ) : (
+        <SelectCombobox
+          id={id}
+          aria-labelledby={`${id}-label`}
+          options={options}
+          value={value}
+          placeholder="Pilih cabang"
+          onChange={onChange}
+          disabled={disabled}
+          searchable={false}
+        />
+      )}
     </div>
   );
 }
@@ -68,7 +80,7 @@ export function UserForm({ user, change, close }: {
 }) {
   const id = useId();
   const store = useAuthStore((state) => state.session?.account.store);
-  const canChooseBranch = !user && store?.all_branches === true;
+  const canChooseBranch = store?.all_branches === true;
   const [initial] = useState(() => ({
     username: user?.user_username ?? "",
     fullname: user?.user_fullname ?? "",
@@ -76,9 +88,10 @@ export function UserForm({ user, change, close }: {
     phone: user?.user_phone ?? "",
     address: user?.user_address ?? "",
     access: getUserAccess(user),
+    branchId: user?.user_branch_id ?? "",
   }));
   const [access, setAccess] = useState(initial.access);
-  const [branchId, setBranchId] = useState("");
+  const [branchId, setBranchId] = useState(initial.branchId);
   const [savedPhoto] = useState(() => user?.user_foto
     ? new URL(user.user_foto, `${API_BASE_URL.replace(/\/$/, "")}/`).href : "");
   const [photo, setPhoto] = useState(savedPhoto);
@@ -113,6 +126,7 @@ export function UserForm({ user, change, close }: {
 
     setInvalidField(null);
     if (user) {
+      if (canChooseBranch && branchId && branchId !== initial.branchId) values.branch_id = branchId;
       if (!Object.keys(values).length) {
         close();
         return;
@@ -128,10 +142,11 @@ export function UserForm({ user, change, close }: {
   }
 
   const Footer = user ? DrawerFooter : "div";
+  const formId = `${id}-form`;
 
   return (
-    <form onSubmit={submit} className="flex min-h-0 flex-col" autoComplete="off">
-      <div className={cn("pb-4", user && "min-h-0 overflow-y-auto px-4")}>
+    <>
+      <form id={formId} onSubmit={submit} className={user ? "drawer-body" : "pb-4"} autoComplete="off">
         <fieldset disabled={change.isPending} className="min-w-0 space-y-4">
           <legend className="mb-3 text-sm font-semibold text-muted-foreground">Akun &amp; Akses</legend>
           <div className="space-y-2">
@@ -174,7 +189,7 @@ export function UserForm({ user, change, close }: {
               <p id={`${id}-access-error`} role="alert" className="text-sm text-destructive">Pilih akses pengguna.</p>
             )}
           </div>
-          {canChooseBranch && <BranchField store={store} value={branchId} onChange={setBranchId} disabled={change.isPending} />}
+          {canChooseBranch && <BranchField store={store} value={branchId} onChange={setBranchId} disabled={change.isPending} editing={!!user} />}
         </fieldset>
         <div className="my-5 border-t" />
         <fieldset disabled={change.isPending} className="min-w-0 space-y-4">
@@ -195,11 +210,11 @@ export function UserForm({ user, change, close }: {
         {change.error && (
           <p role="alert" className="mt-4 text-sm text-destructive">{change.error.message}</p>
         )}
-      </div>
-      <Footer className={cn("grid shrink-0 grid-cols-2 gap-2 border-t", !user && "pt-4")}>
+      </form>
+      <Footer className={cn("grid grid-cols-2 gap-2", !user && "border-t pt-4")}>
         <Button variant="outline" type="button" disabled={change.isPending} onClick={close}>Batal</Button>
-        <Button type="submit" disabled={upload.busy || !!upload.error} loading={change.isPending}>Simpan</Button>
+        <Button type="submit" form={formId} disabled={upload.busy || !!upload.error} loading={change.isPending}>Simpan</Button>
       </Footer>
-    </form>
+    </>
   );
 }

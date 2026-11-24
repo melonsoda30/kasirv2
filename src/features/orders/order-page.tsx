@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Minus, Plus, ShoppingBag, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Minus, Plus, ShoppingBag } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CatalogSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Drawer,
   DrawerClose,
   DrawerTrigger,
+  DrawerBody,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
@@ -37,7 +47,7 @@ import { cashSessionAllowsSales, useCashSession } from "@/features/cash-session/
 import { isLowStock, useOrderProducts } from "./order-products";
 import { LowStockReminder } from "./low-stock-reminder";
 import { OrderQuantityButtons, QuantityButtons } from "./order-quantity-buttons";
-import { changePendingQuantity, pendingQuantityLimit, usePendingOrderEdit } from "./pending-order-edit";
+import { changePendingQuantity, pendingQuantityLimit, usePendingOrderCancellation, usePendingOrderEdit } from "./pending-order-edit";
 import { OrderCategoryReorderDrawer } from "./order-category-reorder-drawer";
 import {
   getOrderCategories,
@@ -71,16 +81,15 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
   const remaining = edit?.remaining ?? Math.max(0, product.stock - reserved);
   const unavailable = edit ? edit.busy || remaining <= 0 : !product.active || product.stock <= 0;
   const lowStock = isLowStock(product, remaining);
-  const stockLabel = `Stok tersedia ${remaining}`;
+  const outOfStock = remaining <= 0;
+  const stockLabel = outOfStock ? "Stok habis" : `Stok tersedia ${remaining}`;
   const stockWarning = lowStock && (
-    <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-      <TriangleAlert className="size-3" aria-hidden="true" /> Hampir habis
-    </span>
+    <StatusBadge tone="warning">Hampir habis</StatusBadge>
   );
-  const stock = (
-    <span className={cn("text-xs text-muted-foreground", remaining === 0 && "text-destructive")}>
-      {stockLabel}
-    </span>
+  const stock = outOfStock && product.stock > 0 ? (
+    <StatusBadge tone="danger">{stockLabel}</StatusBadge>
+  ) : (
+    <span className={cn("text-xs", outOfStock ? "text-destructive" : "text-muted-foreground")}>{stockLabel}</span>
   );
   return (
     <Drawer
@@ -98,7 +107,7 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
           className="flex w-full flex-1 flex-col rounded-2xl text-left outline-none transition-colors enabled:hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
         >
           <div className="relative w-full">
-            <ProductImage product={product} />
+            <ProductImage product={product} showActiveStatus={false} />
             {stockWarning && (
               <div className="pointer-events-none absolute bottom-2 left-2">{stockWarning}</div>
             )}
@@ -125,26 +134,26 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
             canIncrease={edit.remaining > 0} onChange={(delta) => edit.change((edit.line?.quantity ?? 0) + delta)} />
         </div>
       )}
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)]">
-        <div className="min-h-0 overflow-y-auto">
-          <div className="relative mt-4">
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="break-words">{product.title}</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody className="space-y-3">
+          <div className="relative">
             <ProductImage product={product} detail />
             {stockWarning && (
               <div className="pointer-events-none absolute bottom-6 left-6">{stockWarning}</div>
             )}
           </div>
-          <DrawerHeader className="text-left">
-            <DrawerTitle>{product.title}</DrawerTitle>
-            <div className="my-2 flex items-start justify-between gap-3">
-              <ProductPrice product={product} detail />
-              {stock}
-            </div>
-            <DrawerDescription>
-              {product.description || "Belum ada deskripsi."}
-            </DrawerDescription>
-          </DrawerHeader>
-        </div>
-        <DrawerFooter className="border-t">
+          <div className="flex items-start justify-between gap-3">
+            <ProductPrice product={product} detail />
+            {stock}
+          </div>
+          <DrawerDescription>
+            {product.description || "Belum ada deskripsi."}
+          </DrawerDescription>
+        </DrawerBody>
+        <DrawerFooter>
           {/* <p className="truncate text-xs text-muted-foreground">Tambahkan ke {active?.name || 'pesanan'}</p> */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -261,6 +270,8 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
   );
   const { owner, orders, activeId, initialize } = useOrderStore();
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+  const cancelPending = usePendingOrderCancellation(draftOwner, branchId);
   const sessionControl = useRef<{ openMenu: () => void }>(null);
   const openShiftAfterSummary = useRef(false);
   const [search, setSearch] = useState("");
@@ -285,9 +296,16 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
       product.title.toLocaleLowerCase("id-ID").includes(keyword),
   );
   const active = editTrxId ? pendingOrder : orders.find((order) => order.id === activeId);
+  const hasItems = !!active?.items.length;
+  if (summaryOpen && !hasItems) setSummaryOpen(false);
 
   function changeEditedQuantity(id: string, quantity: number, product?: Product) {
-    if (!draftOwner || !pendingOriginal || !serverOrder || pendingEdit.isPending) return;
+    if (!draftOwner || !pendingOriginal || !serverOrder || pendingEdit.isPending || cancelId) return;
+    if (quantity === 0 && pendingOrder?.items.length === 1 && pendingOrder.items[0].product.id === id) {
+      cancelPending.reset();
+      setCancelId(serverOrder.id);
+      return;
+    }
     setEdits((previous) => {
       const order = previous?.owner === draftOwner ? previous.order : pendingOriginal;
       return { owner: draftOwner, original: pendingOriginal, order: changePendingQuantity(order, pendingOriginal, id, quantity, product) };
@@ -295,7 +313,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
   }
 
   function saveEditedOrder() {
-    if (!pendingOrder?.items.length || !serverOrder || !currentEdits || pendingEdit.isPending) return;
+    if (!pendingOrder?.items.length || !serverOrder || !currentEdits || pendingEdit.isPending || cancelId) return;
     pendingEdit.mutate({ order: pendingOrder, transaction: serverOrder }, {
       onSuccess: () => {
         toast.success("Perubahan pesanan tersimpan.");
@@ -395,7 +413,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
         </div>
       </header>
       <main id="main-content" className="page-gutter min-w-0 flex-1 pt-4 pb-28 sm:pt-6">
-        {editTrxId && detail.isPending && <p role="status">Memuat pesanan...</p>}
+        {editTrxId && detail.isPending && <CatalogSkeleton label="Memuat pesanan" />}
         {editTrxId && detail.isError && <div className="space-y-3">
           <p role="alert">{detail.error.message}</p>
           <Button type="button" variant="outline" loading={detail.isFetching} onClick={() => void detail.refetch()}>Coba lagi</Button>
@@ -403,14 +421,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
         {editTrxId && detail.isSuccess && !serverOrder && <p role="status">
           {wrongBranch ? "Cabang pesanan tidak sesuai dengan cabang kasir." : "Pesanan sudah tidak menunggu pembayaran."}
         </p>}
-        {catalog.isPending && (!editTrxId || serverOrder) && (
-          <p
-            role="status"
-            className="py-12 text-center text-sm text-muted-foreground"
-          >
-            Memuat produk...
-          </p>
-        )}
+        {catalog.isPending && (!editTrxId || serverOrder) && <CatalogSkeleton />}
         {catalogUnavailable && (
           <div className="space-y-3 py-12 text-center">
             <p role="alert" className="text-sm text-destructive">
@@ -446,7 +457,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
           </p>
         )}
       </main>
-      {active && account && (!editTrxId || serverOrder) && (
+      {active && hasItems && account && (!editTrxId || serverOrder) && (
         <Drawer open={summaryOpen} dismissible={!pendingEdit.isPending} onOpenChange={setSummaryOpen}>
           <div className="order-cart-bar fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 py-3 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] sm:pl-[calc(1.5rem+env(safe-area-inset-left))] sm:pr-[calc(1.5rem+env(safe-area-inset-right))]">
             <DrawerTrigger asChild>
@@ -469,7 +480,6 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
             </DrawerTrigger>
           </div>
           <DrawerContent
-            className="product-drawer pb-[env(safe-area-inset-bottom)]"
             onCloseAutoFocus={(event) => {
               if (!openShiftAfterSummary.current) return;
               event.preventDefault();
@@ -481,7 +491,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
               <DrawerTitle>Ringkasan pesanan</DrawerTitle>
               <DrawerDescription>{active.name}</DrawerDescription>
             </DrawerHeader>
-            <div className="min-h-0 overflow-y-auto px-4 pb-4">
+            <DrawerBody>
               <OrderSummary
                 order={active}
                 productsByKey={catalog.data?.byKey}
@@ -495,12 +505,11 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
               {/* <Button asChild variant="ghost" className="mt-3 w-full">
                 <Link to="/cart">Lihat semua pesanan</Link>
               </Button> */}
-            </div>
-            <DrawerFooter className="border-t">
+            </DrawerBody>
+            <DrawerFooter>
               {editTrxId && <>
                 {pendingEdit.isError && <p role="alert" className="text-sm text-destructive">{pendingEdit.error.message}</p>}
-                {!active.items.length && <p className="text-sm text-muted-foreground">Tambahkan produk sebelum menyimpan, atau batalkan pesanan dari antrean.</p>}
-                <Button type="button" disabled={!currentEdits || !active.items.length || pendingEdit.isPending}
+                <Button type="button" disabled={!currentEdits || pendingEdit.isPending}
                   loading={pendingEdit.isPending} onClick={saveEditedOrder}>Simpan</Button>
               </>}
               {!editTrxId && canTransact && (
@@ -525,6 +534,40 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
           </DrawerContent>
         </Drawer>
       )}
+      <Dialog open={!!cancelId} onOpenChange={(open) => {
+        if (!open && !cancelPending.isPending) setCancelId(null);
+      }}>
+        <DialogContent role="alertdialog" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Hapus produk terakhir?</DialogTitle>
+            <DialogDescription>
+              Menghapus produk terakhir akan menghapus pesanan ini dari antrean.
+            </DialogDescription>
+          </DialogHeader>
+          {cancelPending.isError && (
+            <p role="alert" className="text-sm text-destructive">{cancelPending.error.message}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={cancelPending.isPending} onClick={() => setCancelId(null)}>
+              Tidak
+            </Button>
+            <Button type="button" variant="destructive" loading={cancelPending.isPending}
+              disabled={cancelPending.isPending || cancelId !== serverOrder?.id}
+              onClick={() => {
+                if (!cancelId || cancelId !== serverOrder?.id) return;
+                cancelPending.mutate(cancelId, {
+                  onSuccess: () => {
+                    setCancelId(null);
+                    setSummaryOpen(false);
+                    void navigate({ to: "/cart", search: { session: returnSession }, replace: true });
+                  },
+                });
+              }}>
+              Hapus
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

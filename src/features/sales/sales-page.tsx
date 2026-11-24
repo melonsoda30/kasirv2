@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { useProductStore } from "@/features/products/product-store";
 import {
   getAccountBranches,
@@ -23,6 +24,34 @@ import { defaultSalesFilters, salesFilterChips } from "./sales-filters";
 import { fetchTransactions, transactionListParams } from "./sales-api";
 import { SalesSummaryCards } from "./sales-summary-cards";
 import { SalesTransactionList } from "./sales-transaction-list";
+
+function SalesSummarySkeleton() {
+  return (
+    <div aria-hidden="true" className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5 lg:mb-9">
+        <div className="flex min-h-9 items-center justify-between gap-2">
+          <Skeleton className="h-4 w-24 max-w-[40%]" />
+          <Skeleton className="h-4 w-36 max-w-[55%]" />
+        </div>
+        <Skeleton className="h-8 w-2/3" />
+      </div>
+      <div className="flex min-w-0 flex-col">
+        <div className="grid flex-1 grid-cols-2 gap-3">
+          {[0, 1].map((index) => (
+            <div key={index} className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-8 w-1/2" />
+            </div>
+          ))}
+        </div>
+        <div className="flex h-9 items-center justify-center gap-3">
+          <Skeleton className="h-1 w-6 rounded-full" />
+          <Skeleton className="h-1 w-6 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SalesPage({
   userScope,
@@ -59,6 +88,7 @@ export function SalesPage({
   const accountBranch = branchId ?? (isAdmin ? "all" : "");
   const visibleBranch = isAdmin && !isCashierTransactions ? adminBranch : accountBranch;
   const transactionFilters = {
+    branchId: cashierBranchId,
     cashier: userScope?.id ?? filters.cashier,
     dateRange: filters.dateRange,
     paymentMethod: filters.paymentMethod,
@@ -75,11 +105,21 @@ export function SalesPage({
   });
   const products = useProductStore((state) => state.products);
   const sales = transactions.data?.sales ?? [];
-  const allowUnknownBranch = !!userScope || (!cashierBranchId && !account?.store?.all_branches);
+  const requestedBranch = transactionFilters.branchId;
+  const allowUnknownBranch =
+    (!!requestedBranch && requestedBranch === visibleBranch) ||
+    !!userScope ||
+    (!cashierBranchId && !account?.store?.all_branches);
+  const branches = getAccountBranches(account?.store);
+  const branchName = branches.find(({ id }) => id === visibleBranch)?.name.trim().toLowerCase();
+  const uniqueBranchName = branchName && branches.filter(({ name }) => name.trim().toLowerCase() === branchName).length === 1;
   const visibleSales = visibleBranch && visibleBranch !== "all"
-    ? sales.filter((sale) => sale.branchId === visibleBranch || (!sale.branchId && allowUnknownBranch))
+    ? sales.filter((sale) => {
+        if (sale.branchId) return sale.branchId === visibleBranch;
+        return allowUnknownBranch || (uniqueBranchName && sale.store?.trim().toLowerCase() === branchName);
+      })
     : sales;
-  const availableStores = getAccountBranches(account?.store).map(
+  const availableStores = branches.map(
     ({ id, name }) => ({ value: id, label: name }),
   );
   const cashiers = (users.data ?? [])
@@ -113,6 +153,7 @@ export function SalesPage({
           hideCashier={!!userScope}
           hideStore={hideStore}
           cashiers={cashiers}
+          cashiersLoading={users.isLoading && !cashiers.length}
           paymentOptions={paymentOptions}
           paymentMethods={paymentMethods}
           onSave={setFilters}
@@ -150,7 +191,7 @@ export function SalesPage({
   return (
     <>
       {userScope && (
-        <CollapsiblePageHeader title="Detail User" backTo="/users">
+        <CollapsiblePageHeader title="Detail pengguna" backTo="/users">
           {toolbar}
         </CollapsiblePageHeader>
       )}
@@ -184,13 +225,13 @@ export function SalesPage({
             >
               <Tabs.Tab
                 value="transactions"
-                className="flex-1 border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground outline-none data-active:border-primary data-active:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex-1 border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground outline-none data-active:border-ring data-active:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Transaksi
               </Tabs.Tab>
               <Tabs.Tab
                 value="summary"
-                className="flex-1 border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground outline-none data-active:border-primary data-active:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex-1 border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground outline-none data-active:border-ring data-active:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Summary
               </Tabs.Tab>
@@ -205,20 +246,19 @@ export function SalesPage({
             </p>
           )}
           {!missingBranch && transactions.isPending && (
-            <div
-              role="status"
-              aria-label="Memuat penjualan"
-              className="space-y-3"
-            >
-              <span className="sr-only">Memuat penjualan</span>
-              {Array.from({ length: 4 }, (_, index) => (
-                <div
-                  key={index}
-                  aria-hidden="true"
-                  className="h-36 rounded-lg bg-muted motion-safe:animate-pulse"
-                />
-              ))}
-            </div>
+            <SkeletonGroup label="Memuat penjualan" className="space-y-4">
+              {userScope ? (
+                <>
+                  <Tabs.Panel value="summary"><SalesSummarySkeleton /></Tabs.Panel>
+                  <Tabs.Panel value="transactions"><SkeletonRows rows={4} /></Tabs.Panel>
+                </>
+              ) : (
+                <>
+                  <SalesSummarySkeleton />
+                  <SkeletonRows rows={4} />
+                </>
+              )}
+            </SkeletonGroup>
           )}
           {!missingBranch && transactions.isError && (
             <div role="alert" className="space-y-3 py-16 text-center">

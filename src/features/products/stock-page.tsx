@@ -1,30 +1,30 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Package } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useAuthStore } from "@/features/auth/auth-store";
 import { fetchProductStock } from "./stock-api";
 import { StockDrawer } from "./stock-drawer";
+import { isLowStockQuantity } from "./product-stock";
 import { useProductCatalog } from "./use-product-catalog";
 
 function StockImage({ src }: { src: string }) {
-  const [failedSource, setFailedSource] = useState("");
   return (
     <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
-      {src && failedSource !== src ? (
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          className="size-full object-cover"
-          onError={() => setFailedSource(src)}
-        />
-      ) : (
-        <Package className="size-6 text-muted-foreground" aria-hidden="true" />
-      )}
+      <SkeletonImage src={src} alt="" loading="lazy" className="size-full"
+        fallback={<Package className="size-6 text-muted-foreground" aria-hidden="true" />}
+      />
     </span>
   );
+}
+
+function StockQuantity({ quantity }: { quantity: number }) {
+  if (quantity <= 0) return <StatusBadge tone="danger">Habis · Stok: {quantity}</StatusBadge>;
+  if (isLowStockQuantity(quantity)) return <StatusBadge tone="warning">Hampir habis · Stok: {quantity}</StatusBadge>;
+  return <span className="block text-sm text-muted-foreground">Stok: {quantity}</span>;
 }
 
 export function StockPage() {
@@ -43,7 +43,11 @@ export function StockPage() {
 
   return (
     <PageLayout title="Stok" wide>
-      {stock.isPending && <p role="status">Memuat stok produk...</p>}
+      {stock.isPending && (
+        <SkeletonGroup label="Memuat stok produk">
+          <SkeletonRows rows={6} media="thumbnail" className="gap-3 sm:grid-cols-2 lg:grid-cols-3" />
+        </SkeletonGroup>
+      )}
       {stock.isError && (
         <div className="space-y-2">
           <p role="alert">Gagal memuat stok produk.</p>
@@ -76,9 +80,7 @@ export function StockPage() {
                   <span className="block font-medium break-words">
                     {item.product_name}
                   </span>
-                  <span className="block text-sm text-muted-foreground">
-                    Stok: {item.quantity}
-                  </span>
+                  <StockQuantity quantity={item.quantity} />
                 </span>
               </StockDrawer>
             </li>

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { isAxiosError } from "axios";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
+import { useAuthStore } from "@/features/auth/auth-store";
 import { paymentMethodsKey } from "@/features/orders/payment-methods";
 import { refreshCashSessionData } from "@/features/cash-session/cash-session-query";
 import { settingsUrl, useStoreSettings, type StoreSettings } from "./store-settings-query";
@@ -40,9 +42,13 @@ function settingsBody(patch: SettingsPatch, upload?: QrisUpload) {
 
 export function StoreSettingsPage({
   title,
+  headerAction,
+  allowEmptySettings = false,
   children,
 }: {
   title: string;
+  headerAction?: (data: StoreSettings, update: SaveStoreSettings) => ReactNode;
+  allowEmptySettings?: boolean;
   children: (
     data: StoreSettings,
     update: SaveStoreSettings,
@@ -50,14 +56,29 @@ export function StoreSettingsPage({
 }) {
   const queryClient = useQueryClient();
   const { query: { data, isPending, error, refetch, isFetching }, queryKey } = useStoreSettings();
+  const storeId = useAuthStore((state) => state.session?.account.store?.id || state.session?.account.event_id);
+  const emptySettings: StoreSettings | undefined = allowEmptySettings && storeId ? {
+    store_id: storeId,
+    shift: [],
+    ppn: { value: 0, is_active: false },
+    payment: [],
+    fee: [],
+  } : undefined;
+  const settings = data === null ? emptySettings : data;
   const { mutateAsync: update } = useMutation({
     scope: { id: JSON.stringify(queryKey) },
     mutationFn: async ({ change, upload }: { change: SettingsUpdate; upload?: QrisUpload }) => {
+      const account = useAuthStore.getState().session?.account;
       await queryClient.cancelQueries({ queryKey, exact: true });
-      const current = queryClient.getQueryData<StoreSettings | null>(queryKey);
+      const cached = queryClient.getQueryData<StoreSettings | null>(queryKey);
+      const current = cached === null ? emptySettings : cached;
       if (!current) throw new Error("Pengaturan toko belum dimuat.");
 
-      const patch = change(current);
+      const changes = change(current);
+      const patch = {
+        ...changes,
+        ...(changes.fee && { fee: changes.fee.map((entry) => ({ ...entry, is_active: entry.is_active ?? true })) }),
+      };
       if (!upload && !Object.keys(patch).length) return;
       const response = await request<SettingsResponse | null>({
         url: settingsUrl,
@@ -77,22 +98,25 @@ export function StoreSettingsPage({
       await queryClient.cancelQueries({ queryKey, exact: true });
       queryClient.setQueryData(queryKey, { ...current, ...patch, ...response.data });
       if (patch.shift || patch.cash_tolerance !== undefined) refreshCashSessionData(queryClient);
+      const paymentStoreId = response.data?.store_id || account?.store?.id || account?.event_id || current.store_id;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey, exact: true }),
         ...(patch.payment || patch.fee || upload
-          ? [queryClient.invalidateQueries({ queryKey: paymentMethodsKey(current.store_id) })]
+          ? [queryClient.invalidateQueries({ queryKey: paymentMethodsKey(paymentStoreId) })]
           : []),
+        ...(patch.payment ? [queryClient.invalidateQueries({ queryKey: ["transactions", queryKey[2]] })] : []),
       ]);
     },
     meta: { toast: false },
   });
+  const save: SaveStoreSettings = (change, upload) => update({ change, upload });
 
   return (
-    <PageLayout title={title} prevLink="/profil">
+    <PageLayout title={title} prevLink="/profil" headerAction={settings && headerAction?.(settings, save)}>
       {isPending && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Memuat pengaturan…
-        </p>
+        <SkeletonGroup label="Memuat pengaturan">
+          <SkeletonRows />
+        </SkeletonGroup>
       )}
       {error && (
         <div className="mb-4 space-y-2">
@@ -102,15 +126,15 @@ export function StoreSettingsPage({
           <Button
             variant="outline"
             size="sm"
-            disabled={isFetching}
+            loading={isFetching}
             onClick={() => void refetch()}
           >
             Coba lagi
           </Button>
         </div>
       )}
-      {data === null && <p className="text-sm text-muted-foreground">Belum ada pengaturan untuk toko ini.</p>}
-      {data && <>{children(data, (change, upload) => update({ change, upload }))}</>}
+      {data === null && !settings && <p className="text-sm text-muted-foreground">Belum ada pengaturan untuk toko ini.</p>}
+      {settings && <>{children(settings, save)}</>}
     </PageLayout>
   );
 }

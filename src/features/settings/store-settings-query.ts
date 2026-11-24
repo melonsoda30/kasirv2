@@ -17,13 +17,13 @@ export type StoreSettings = {
 export const settingsUrl = "/admin/setting.php";
 
 export async function fetchStoreSettings(signal?: AbortSignal): Promise<StoreSettings | null> {
-  const response = await request<{ status: string; msg?: string; data?: StoreSettings } | null>({
+  const response = await request<{ status: string; msg?: string; data?: StoreSettings | null } | null>({
     url: settingsUrl,
     method: "GET",
     params: { action: "setting" },
     signal,
   });
-  if (isEmptyListResponse(response)) return null;
+  if (isEmptyListResponse(response) || (response?.status === "success" && response.data === null)) return null;
   if (response?.status !== "success" || !response.data) {
     throw new Error(response?.msg || "Gagal memuat pengaturan.");
   }

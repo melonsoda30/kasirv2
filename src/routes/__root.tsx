@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { getAuthSession, isAdminAccount, isCashierEventLevel, useAuthStore } from '@/features/auth/auth-store';
 import type { QueryClient } from "@tanstack/react-query";
 import { MobileLayout } from "../components/mobile-layout";
+import { Button } from "../components/ui/button";
 
 const profileRoutes = new Set(['/profil', '/profil_/edit', '/profil_/ganti-password'])
 const cashierRoutes = new Set([
@@ -46,7 +47,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     notFoundComponent: () => (
       <main className="flex min-h-svh flex-col items-center justify-center gap-4 p-6">
         {/* <h1 className="text-3xl font-semibold">Halaman tidak ditemukan</h1> */}
-        <Link to="/" className="text-violet-600 underline">
+        <Link to="/" className="text-link underline">
           Kembali ke home
         </Link>
       </main>
@@ -54,14 +55,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     errorComponent: ({ reset }) => (
       <main className="flex min-h-svh flex-col items-center justify-center gap-4 p-6">
         <h1 className="text-3xl font-semibold">Halaman gagal dimuat</h1>
-        <button
-          type="button"
-          onClick={reset}
-          className="cursor-pointer rounded bg-violet-600 px-4 py-2 text-white"
-        >
+        <Button type="button" onClick={reset}>
           Coba lagi
-        </button>
-        <Link to="/" className="text-violet-600 underline">
+        </Button>
+        <Link to="/" className="text-link underline">
           Kembali ke beranda
         </Link>
       </main>

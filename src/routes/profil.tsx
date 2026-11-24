@@ -17,10 +17,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SkeletonImage } from "@/components/ui/skeleton-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { SelectCombobox } from "@/components/select-combobox";
 import {
   Drawer,
   DrawerClose,
+  DrawerBody,
   DrawerContent,
   DrawerFooter,
   DrawerHeader,
@@ -42,7 +45,7 @@ import {
 } from "@/features/auth/auth-store";
 import { useCashSession } from "@/features/cash-session/cash-session-query";
 import { API_BASE_URL } from "@/lib/api";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 export const Route = createFileRoute("/profil")({
   component: ProfilePage,
@@ -50,7 +53,7 @@ export const Route = createFileRoute("/profil")({
 
 const accountMenus = [
   { label: "Ganti Password", icon: LockKeyhole, to: "/profil/ganti-password" },
-  { label: "Users", icon: Users, to: "/users" },
+  { label: "Pengguna", icon: Users, to: "/users" },
 ] as const;
 
 const menuRowClass =
@@ -65,9 +68,9 @@ function ProfileAction({
 }: ({ to: "/sesi-kas"; onClick?: never } | { to?: never; onClick: () => void }) & {
   icon: LucideIcon;
   label: string;
-  status?: string;
+  status?: ReactNode;
 }) {
-  const className = "flex w-full items-center gap-3 border-t bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+  const className = "flex w-full items-center gap-3 border-t bg-background px-4 py-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
   const content = (
     <>
       <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -75,7 +78,7 @@ function ProfileAction({
       {status && (
         <span className="text-xs text-muted-foreground">{status}</span>
       )}
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
         <ArrowRight className="size-3.5" aria-hidden="true" />
       </span>
     </>
@@ -95,12 +98,11 @@ function ProfilePage() {
   const branches = getCashierBranches(account?.store);
   const cashSession = useCashSession(isCashier || isAdmin);
   const usesShift = cashSession.data?.use_session === true;
-  const shiftStatus = cashSession.data?.session ? "Aktif" : "Belum dibuka";
+  const shiftActive = cashSession.data?.session?.status === "open";
   const visibleAccountMenus = accountMenus.filter(({ to }) =>
     !isCashier || to !== "/users",
   );
   const navigate = useNavigate();
-  const [imageFailed, setImageFailed] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [chooseBranch, setChooseBranch] = useState(false);
   const [branchId, setBranchId] = useState("");
@@ -135,19 +137,9 @@ function ProfilePage() {
         >
           <div className="flex items-center gap-3 p-4 sm:p-5">
             <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-              {image && !imageFailed ? (
-                <img
-                  src={image}
-                  alt="Foto profil"
-                  className="size-full object-cover"
-                  onError={() => setImageFailed(true)}
-                />
-              ) : (
-                <UserRound
-                  className="size-7 text-muted-foreground"
-                  aria-label="Foto profil belum tersedia"
-                />
-              )}
+              <SkeletonImage src={image} alt="Foto profil" className="size-full"
+                fallback={<UserRound className="size-7 text-muted-foreground" aria-label="Foto profil belum tersedia" />}
+              />
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold">
@@ -184,7 +176,7 @@ function ProfilePage() {
               to="/sesi-kas"
               icon={Clock}
               label="Shift"
-              status={shiftStatus}
+              status={shiftActive ? <StatusBadge tone="ready">Aktif</StatusBadge> : "Belum dibuka"}
             />
           )}
         </section>
@@ -264,11 +256,11 @@ function ProfilePage() {
         </button>
       </div>
       <Drawer open={chooseBranch} onOpenChange={setChooseBranch}>
-        <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)]" aria-describedby={undefined}>
-          <DrawerHeader className="shrink-0">
+        <DrawerContent aria-describedby={undefined}>
+          <DrawerHeader>
             <DrawerTitle>Pilih cabang kasir</DrawerTitle>
           </DrawerHeader>
-          <div className="min-h-0 space-y-2 overflow-y-auto px-4 pb-4">
+          <DrawerBody className="space-y-2">
             <label htmlFor={branchInputId} className="font-medium">Cabang</label>
             <SelectCombobox
               id={branchInputId}
@@ -279,8 +271,8 @@ function ProfilePage() {
               onChange={setBranchId}
             />
             {!branches.length && <p className="text-muted-foreground">Belum ada cabang yang tersedia.</p>}
-          </div>
-          <DrawerFooter className="shrink-0 border-t">
+          </DrawerBody>
+          <DrawerFooter>
             <div className="grid grid-cols-2 gap-2">
               <DrawerClose asChild>
                 <Button type="button" variant="outline">Batal</Button>

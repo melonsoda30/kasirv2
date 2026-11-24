@@ -1,9 +1,8 @@
 import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { ArrowDownUp, ChevronRight, RotateCcw } from "lucide-react";
+import { ArrowDownUp, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,10 +16,9 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { updateProductStock, type StockRecord } from "./stock-api";
+import { StockHistory } from "./stock-history";
 
 type StockStep = "history" | "mutation" | "reset" | "confirm-reset";
-
-const actionClassName = "min-w-0 cursor-pointer items-start justify-start gap-3 rounded-xl px-3 text-left whitespace-normal";
 
 export function StockDrawer({
   item,
@@ -47,9 +45,6 @@ export function StockDrawer({
   if (confirmingReset) submitLabel = "Reset stok";
   const [change, setChange] = useState("");
   const [note, setNote] = useState("");
-  const history = [...item.history].sort((first, second) =>
-    second.at.localeCompare(first.at),
-  );
   const quantity = Number(change);
   const validQuantity =
     /^[+-]?\d+$/.test(change.trim()) &&
@@ -124,89 +119,25 @@ export function StockDrawer({
           {children}
         </button>
       </DrawerTrigger>
-      <DrawerContent className="product-drawer pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DrawerHeader className="shrink-0">
+      <DrawerContent>
+        <DrawerHeader>
           <DrawerTitle ref={titleRef} tabIndex={-1}>{title}</DrawerTitle>
-          <DrawerDescription>{item.product_name}</DrawerDescription>
+          <DrawerDescription className="break-words">{item.product_name}</DrawerDescription>
         </DrawerHeader>
         {step === "history" && (
-          <div className="flow-panel min-h-0 space-y-4 overflow-y-auto px-4 pb-4">
-            {currentStock}
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                type="button"
-                className={actionClassName}
-                aria-labelledby={`${id}-mutation-label`}
-                aria-describedby={`${id}-mutation-description`}
-                onClick={() => setStep("mutation")}
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-foreground/15">
-                  <ArrowDownUp aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1 space-y-1">
-                  <span id={`${id}-mutation-label`} className="block font-semibold">
-                    Mutasi stok
-                  </span>
-                  <span id={`${id}-mutation-description`} className="block text-xs font-normal text-primary-foreground/85">
-                    Tambah atau kurangi stok. Perubahan dicatat dalam riwayat.
-                  </span>
-                </span>
-                <ChevronRight className="self-center" aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={actionClassName}
-                aria-labelledby={`${id}-reset-label`}
-                aria-describedby={`${id}-reset-description`}
-                onClick={() => setStep("reset")}
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive">
-                  <RotateCcw aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1 space-y-1">
-                  <span id={`${id}-reset-label`} className="block font-semibold">
-                    Reset stok
-                  </span>
-                  <span id={`${id}-reset-description`} className="block text-xs font-normal text-muted-foreground">
-                    Ganti stok dengan jumlah yang dimasukkan. Riwayat stok sebelumnya akan dihapus.
-                  </span>
-                </span>
-                <ChevronRight className="self-center text-muted-foreground" aria-hidden="true" />
-              </Button>
-            </div>
-            {history.length === 0 && (
-              <p className="text-muted-foreground">Belum ada histori stok.</p>
-            )}
-            {history.length > 0 && (
-              <ul className="divide-y rounded-md border">
-                {history.map((entry, index) => (
-                  <li
-                    key={JSON.stringify([entry.at, entry.by_id, index])}
-                    className="flex justify-between gap-3 p-3"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <p className="font-medium">
-                        {entry.type === "mutasi" ? "Mutasi stok" : entry.type}
-                      </p>
-                      <p className="text-muted-foreground">
-                        Stok {entry.before} → {entry.after}
-                      </p>
-                      {entry.note && <p className="break-words">{entry.note}</p>}
-                      <p className="text-xs text-muted-foreground">
-                        <time dateTime={entry.at.replace(" ", "T")}>
-                          {entry.at}
-                        </time>
-                      </p>
-                    </div>
-                    <span className={cn("font-medium", entry.delta < 0 && "text-destructive")}>
-                      {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <>
+            <StockHistory item={item} />
+            <DrawerFooter>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" onClick={() => setStep("reset")}>
+                  <RotateCcw aria-hidden="true" /> Reset stok
+                </Button>
+                <Button type="button" onClick={() => setStep("mutation")}>
+                  <ArrowDownUp aria-hidden="true" /> Mutasi stok
+                </Button>
+              </div>
+            </DrawerFooter>
+          </>
         )}
         {step !== "history" && (
           <>
@@ -214,7 +145,7 @@ export function StockDrawer({
               key={step}
               id={formId}
               onSubmit={submit}
-              className="flow-panel min-h-0 space-y-4 overflow-y-auto px-4 pb-4"
+              className="drawer-body flow-panel space-y-4"
             >
               {confirmingReset && (
                 <div className="space-y-3 rounded-xl border p-3">
@@ -234,6 +165,11 @@ export function StockDrawer({
               {!confirmingReset && (
                 <>
                   {currentStock}
+                  {resettingStock && (
+                    <p className="rounded-lg bg-destructive-muted p-3 text-sm text-destructive">
+                      Riwayat stok sebelumnya akan dihapus setelah reset dikonfirmasi.
+                    </p>
+                  )}
                   <div className="space-y-2">
                     <label htmlFor={inputId} className="block font-medium">
                       {resettingStock ? "Jumlah stok baru" : "Perubahan stok"}
@@ -263,7 +199,7 @@ export function StockDrawer({
                 </>
               )}
             </form>
-            <DrawerFooter className="shrink-0 border-t">
+            <DrawerFooter>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"

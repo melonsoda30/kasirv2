@@ -46,9 +46,13 @@ export const menuListParams = {
 
 const adminProductEndpoint = "/admin/product";
 const orderProductEndpoint = "/product/product";
-type ProductListEndpoint = typeof adminProductEndpoint | typeof orderProductEndpoint;
+type ProductListEndpoint =
+  typeof adminProductEndpoint | typeof orderProductEndpoint;
 
-export function mapProductRecord(record: ProductRecord, endpoint: ProductListEndpoint = adminProductEndpoint): Product {
+export function mapProductRecord(
+  record: ProductRecord,
+  endpoint: ProductListEndpoint = adminProductEndpoint,
+): Product {
   const status = record.status.trim().toLowerCase();
   const imagePath = record.product_img?.trim() ?? "";
   const discountTypes: Record<string, string> = {
@@ -75,7 +79,8 @@ export function mapProductRecord(record: ProductRecord, endpoint: ProductListEnd
     branchId: record.branch_id ?? "",
     photo:
       imagePath && !/^[?#]/.test(imagePath)
-        ? new URL(imagePath, `${API_BASE_URL.replace(/\/$/, "")}${endpoint}`).href
+        ? new URL(imagePath, `${API_BASE_URL.replace(/\/$/, "")}${endpoint}`)
+            .href
         : "",
     image: "",
     description: record.product_description || "",
@@ -93,21 +98,24 @@ export function mapProductRecord(record: ProductRecord, endpoint: ProductListEnd
 }
 
 function mapOrderProductRecord(record: OrderProductRecord): Product {
-  return mapProductRecord({
-    status: record.status,
-    product_sku: record.id,
-    store_id: record.location,
-    branch_id: record.branch,
-    product_category: record.category,
-    product_category_name: record.category_name,
-    product_img: record.img,
-    product_name: record.name,
-    product_price: record.price,
-    product_description: record.description,
-    discount_type: record.discount_type,
-    discount: record.discount,
-    stock_quantity: record.stock,
-  }, orderProductEndpoint);
+  return mapProductRecord(
+    {
+      status: record.status,
+      product_sku: record.id,
+      store_id: record.location,
+      branch_id: record.branch,
+      product_category: record.category,
+      product_category_name: record.category_name,
+      product_img: record.img,
+      product_name: record.name,
+      product_price: record.price,
+      product_description: record.description,
+      discount_type: record.discount_type,
+      discount: record.discount,
+      stock_quantity: record.stock,
+    },
+    orderProductEndpoint,
+  );
 }
 
 async function fetchProductList<TRecord>(
@@ -117,9 +125,7 @@ async function fetchProductList<TRecord>(
   signal?: AbortSignal,
 ): Promise<Product[]> {
   const response = await request<
-    | TRecord[]
-    | { status?: string; msg?: string; data?: TRecord[] }
-    | null
+    TRecord[] | { status?: string; msg?: string; data?: TRecord[] } | null
   >({
     url: endpoint,
     method: "GET",
@@ -143,11 +149,21 @@ async function fetchProductList<TRecord>(
 }
 
 export function fetchProducts(signal?: AbortSignal) {
-  return fetchProductList(adminProductEndpoint, menuListParams, mapProductRecord, signal);
+  return fetchProductList(
+    adminProductEndpoint,
+    menuListParams,
+    mapProductRecord,
+    signal,
+  );
 }
 
 export function fetchOrderProducts(signal?: AbortSignal) {
-  return fetchProductList(orderProductEndpoint, { action: "list_product" }, mapOrderProductRecord, signal);
+  return fetchProductList(
+    orderProductEndpoint,
+    { action: "list_product" },
+    mapOrderProductRecord,
+    signal,
+  );
 }
 
 export async function updateProductStatus(
@@ -174,7 +190,7 @@ export async function updateProductStatus(
 export async function deleteProduct(menuId: string): Promise<string> {
   const data = new FormData();
   data.set("action", "delete_menu");
-  data.set("menu_id", menuId);
+  data.set("product_sku", menuId);
   const response = await request<{ status: string; msg?: string } | null>({
     url: "/admin/product",
     method: "POST",

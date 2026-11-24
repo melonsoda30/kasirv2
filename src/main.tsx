@@ -6,14 +6,21 @@ import { router } from "./router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/query-client";
 import { Toaster } from "sonner";
+import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
       <Toaster
+        className="kasir-toaster"
         position="top-center"
         richColors
+        icons={{
+          success: <CircleCheck size={18} className="fill-success-indicator text-status-icon-foreground" aria-hidden="true" />,
+          warning: <TriangleAlert size={18} className="fill-warning-indicator text-status-icon-foreground" aria-hidden="true" />,
+          error: <CircleAlert size={18} className="fill-destructive-indicator text-status-icon-foreground" aria-hidden="true" />,
+        }}
         toastOptions={{ style: { fontFamily: "var(--sans)" } }}
         expand={true}
       />

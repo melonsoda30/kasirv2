@@ -350,12 +350,14 @@ test('admin user mutations encode optional credentials, branch placement, binary
     delete calls[0].img
     await changeUser({ action: 'add_user', fields: { username: 'admin04', level_user: 'Administrator' } })
     await changeUser({ action: 'edit_user', userId: '4', fields: { address: '', is_cashier: false } })
+    await changeUser({ action: 'edit_user', userId: '4', fields: { branch_id: ' BC-002 ' } })
     await changeUser({ action: 'status_user', userId: '4', status: 'noactive' })
     await changeUser({ action: 'status_user', userId: '4', status: 'active' })
     assert.deepEqual(calls, [
       { action: 'add_user', username: 'kasir04', fullname: 'Kasir', is_cashier: '1', password: ' test password ', branch_id: 'BC-001' },
       { action: 'add_user', username: 'admin04', level_user: 'Administrator' },
       { action: 'edit_user', user_id: '4', address: '', is_cashier: '0' },
+      { action: 'edit_user', user_id: '4', branch_id: 'BC-002' },
       { action: 'status_user', user_id: '4', status: 'noactive' },
       { action: 'status_user', user_id: '4', status: 'active' },
     ])
@@ -989,6 +991,9 @@ test('empty list responses render as no data while real API errors are preserved
     assert.equal(await fetchStoreSettings(), null)
     assert.deepEqual(await fetchTransactions({}, ''), emptyTransactions)
   }
+
+  payload = { status: 'success', data: null }
+  assert.equal(await fetchStoreSettings(), null)
 
   payload = { status: 'success', msg: 'No Data yet', data: { summary: [], data_trx: [] } }
   assert.deepEqual(await fetchTransactions({}, ''), emptyTransactions)
