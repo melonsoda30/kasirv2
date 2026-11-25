@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -45,7 +46,7 @@ export function PaymentLeaveDialog({
         if (!open) reset?.();
       }}
     >
-      <DialogContent showCloseButton={false}>
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {busy
@@ -58,8 +59,11 @@ export function PaymentLeaveDialog({
               : `Pesanan tetap ada di ${destination} dan bisa dibayar nanti.`}
           </DialogDescription>
         </DialogHeader>
-        {busy && <Skeleton className="h-4 w-full" />}
-        <DialogFooter className="flex flex-row justify-end gap-2">
+        {busy && <DialogBody><Skeleton className="h-4 w-full" /></DialogBody>}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={reset}>
+            {busy ? "Kembali ke pembayaran" : "Lanjut bayar"}
+          </Button>
           {!busy && (
             <Button
               type="button"
@@ -68,10 +72,7 @@ export function PaymentLeaveDialog({
             >
               Tinggalkan
             </Button>
-          )}{" "}
-          <Button type="button" variant="outline" onClick={reset}>
-            {busy ? "Kembali ke pembayaran" : "Lanjut bayar"}
-          </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,15 +1,17 @@
 import { ProductPrice } from "./product-price";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Package } from "lucide-react";
+import { Ellipsis, Package } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SkeletonImage } from "@/components/ui/skeleton-image";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Dialog,
-  DialogTrigger,
+  DialogClose,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogDescription,
@@ -28,6 +30,7 @@ import type { Product } from "./sample-products";
 import { cn } from "@/lib/cn";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateProductStatus } from "./product-api";
+import { ProductCopyDrawer } from "./product-copy-drawer";
 import { isLowStockQuantity } from "./product-stock";
 import { isAxiosError } from "axios";
 
@@ -45,7 +48,8 @@ export function ProductImage({
     (product.image
       ? `https://images.unsplash.com/${product.image}?auto=format&fit=crop&w=640&q=80`
       : "");
-  const outOfStock = product.active && product.stock <= 0;
+  const outOfStock =
+    product.active && product.useStock !== false && product.stock <= 0;
   return (
     <div
       className={cn(
@@ -54,16 +58,28 @@ export function ProductImage({
         detail && "rounded p-4",
       )}
     >
-      <SkeletonImage src={source} alt={product.title} loading="lazy" className="aspect-square"
+      <SkeletonImage
+        src={source}
+        alt={product.title}
+        loading="lazy"
+        className="aspect-square"
         imageClassName={cn(
           "size-full object-cover",
           !detail && !product.active && "grayscale opacity-40",
           !detail && outOfStock && "grayscale opacity-60",
         )}
-        fallback={<Package size={40} className="text-muted-foreground" aria-label={product.title} />}
+        fallback={
+          <Package
+            size={40}
+            className="text-muted-foreground"
+            aria-label={product.title}
+          />
+        }
       />
       {!detail && outOfStock && (
-        <StatusBadge tone="danger" className="absolute top-2 left-2">Habis</StatusBadge>
+        <StatusBadge tone="danger" className="absolute top-2 left-2">
+          Habis
+        </StatusBadge>
       )}
       {showActiveStatus && !detail && !outOfStock && (
         <span
@@ -82,21 +98,44 @@ export function ProductImage({
 }
 
 function Stock({ product }: { product: Product }) {
-  if (product.stock <= 0) return <StatusBadge tone="danger" className="shrink-0">Stok habis</StatusBadge>;
+  if (product.useStock === false)
+    return (
+      <span className="shrink-0 text-xs text-muted-foreground">Tanpa stok</span>
+    );
+  if (product.stock <= 0)
+    return (
+      <StatusBadge tone="danger" className="shrink-0">
+        Stok habis
+      </StatusBadge>
+    );
   if (product.active && isLowStockQuantity(product.stock)) {
-    return <StatusBadge tone="warning" className="shrink-0">Hampir habis · {product.stock}</StatusBadge>;
+    return (
+      <StatusBadge tone="warning" className="shrink-0">
+        Hampir habis · {product.stock}
+      </StatusBadge>
+    );
   }
-  return <span className="shrink-0 text-xs text-muted-foreground">{product.stock} tersisa</span>;
+  return (
+    <span className="shrink-0 text-xs text-muted-foreground">
+      {product.stock} tersisa
+    </span>
+  );
 }
 
 export function ProductCard({
   product,
+  branchName,
   onUpdate,
 }: {
   product: Product;
+  branchName?: string;
   onUpdate: (product: Product) => void;
 }) {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [drawerContainer, setDrawerContainer] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const optionsButton = useRef<HTMLButtonElement>(null);
   const queryClient = useQueryClient();
   const statusMutation = useMutation({
     mutationFn: async (active: boolean) => {
@@ -118,7 +157,7 @@ export function ProductCard({
         { queryKey: ["products", "catalog"] },
         (items) =>
           items?.map((item) =>
-            item.id === product.id ? { ...item, active } : item,
+            item.id === product.id && item.branchId === product.branchId ? { ...item, active } : item,
           ),
       );
       setStatusDialogOpen(false);
@@ -133,13 +172,20 @@ export function ProductCard({
         <button
           type="button"
           className="flex h-full w-full cursor-pointer flex-col rounded-2xl text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={`Lihat detail ${product.title}`}
+          aria-label={`Lihat detail ${product.title}${branchName ? ` di ${branchName}` : ""}`}
         >
-          <div className="w-full"><ProductImage product={product} /></div>
+          <div className="w-full">
+            <ProductImage product={product} />
+          </div>
           <div className="flex w-full flex-1 flex-col justify-between gap-1 p-3">
-            <h2 className="text-sm leading-5 font-medium text-foreground">
-              {product.title}
-            </h2>
+            <div className="space-y-0.5">
+              <h2 className="text-sm leading-5 font-medium text-foreground">
+                {product.title}
+              </h2>
+              {branchName && (
+                <p className="wrap-anywhere text-xs text-muted-foreground">{branchName}</p>
+              )}
+            </div>
             <div className="flex items-baseline justify-between gap-2">
               <ProductPrice product={product} />
               {/* <Stock product={product} /> */}
@@ -147,9 +193,14 @@ export function ProductCard({
           </div>
         </button>
       </DrawerTrigger>
-      <DrawerContent>
+      <DrawerContent ref={setDrawerContainer}>
         <DrawerHeader>
-          <DrawerTitle className="break-words">{product.title}</DrawerTitle>
+          <DrawerTitle className="wrap-break-words">
+            {product.title}
+          </DrawerTitle>
+          {branchName && (
+            <p className="wrap-anywhere text-sm text-muted-foreground">{branchName}</p>
+          )}
         </DrawerHeader>
         <DrawerBody className="space-y-3">
           <ProductImage product={product} detail />
@@ -162,39 +213,88 @@ export function ProductCard({
           </DrawerDescription>
         </DrawerBody>
         <DrawerFooter>
-          <div className="grid grid-cols-2 gap-2">
-            <Button asChild>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+            <Button asChild className="min-w-0 whitespace-normal">
               <Link
                 to="/produk/$productId/edit"
                 params={{ productId: product.id }}
+                search={{ branch: product.branchId || undefined }}
               >
                 Edit produk
               </Link>
             </Button>
+            <ProductCopyDrawer product={product} />
             <Dialog
               open={statusDialogOpen}
               onOpenChange={(open) => {
                 if (!statusMutation.isPending) setStatusDialogOpen(open);
               }}
             >
-              <DialogTrigger asChild>
-                <Button variant="outline" disabled={statusMutation.isPending}>
-                  {product.active ? "Nonaktifkan" : "Aktifkan"}
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
+              <DropdownMenu.Root modal={false}>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    ref={optionsButton}
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-11"
+                    aria-label="Opsi produk"
+                    disabled={statusMutation.isPending}
+                  >
+                    <Ellipsis aria-hidden="true" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal container={drawerContainer}>
+                  <DropdownMenu.Content
+                    side="top"
+                    align="end"
+                    sideOffset={6}
+                    className="z-50 min-w-40 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+                    onCloseAutoFocus={(event) => {
+                      if (statusDialogOpen) event.preventDefault();
+                    }}
+                    data-vaul-no-drag=""
+                  >
+                    <DropdownMenu.Item
+                      className="flex min-h-9 cursor-pointer items-center rounded-md px-3 text-sm outline-none data-highlighted:bg-muted"
+                      onSelect={() => setStatusDialogOpen(true)}
+                    >
+                      {product.active ? "Nonaktifkan" : "Aktifkan"}
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+              <DialogContent
+                closeDisabled={statusMutation.isPending}
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  optionsButton.current?.focus();
+                }}
+              >
                 <DialogHeader>
                   <DialogTitle>
                     {product.active
                       ? "Nonaktifkan produk?"
                       : "Aktifkan produk?"}
                   </DialogTitle>
-                  <DialogDescription className="mb-4">
+                  <DialogDescription>
                     Status {product.title} akan diubah menjadi{" "}
                     {product.active ? "nonaktif" : "aktif"}.
                   </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={statusMutation.isPending}
+                    >
+                      Batal
+                    </Button>
+                  </DialogClose>
                   <Button
                     type="button"
+                    variant={product.active ? "destructive" : "default"}
                     loading={statusMutation.isPending}
                     onClick={() => {
                       if (!statusMutation.isPending)
@@ -203,7 +303,7 @@ export function ProductCard({
                   >
                     {product.active ? "Nonaktifkan" : "Aktifkan"}
                   </Button>
-                </DialogHeader>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>

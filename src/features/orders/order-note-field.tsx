@@ -76,7 +76,7 @@ export function OrderNoteField({
         </DrawerHeader>
         <form
           id={formId}
-          className="drawer-body"
+          className="modal-body"
           onSubmit={(event) => {
             event.preventDefault();
             setOrderNote(order.id, draft.trim());
@@ -101,7 +101,7 @@ export function OrderNoteField({
               Hapus catatan
             </Button>
           )}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="modal-actions">
             <DrawerClose asChild>
               <Button type="button" variant="outline">
                 Batal

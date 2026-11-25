@@ -168,7 +168,7 @@ export function ImageInput({
           aria-describedby={`${id}-help${status.error ? ` ${id}-error` : ""}`}
           className={cn(
             "flex cursor-pointer text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-disabled:cursor-wait",
-            value ? "absolute inset-0 items-end justify-center p-3 hover:bg-foreground/5" : "min-h-24 items-center gap-3 py-4 pl-4 pr-12 text-left hover:bg-muted/50",
+            value ? "absolute inset-0 items-end justify-center p-3 hover:bg-foreground/5" : "min-h-28 items-center gap-3 py-4 pl-4 pr-12 text-left hover:bg-muted/50",
           )}
           onKeyDown={(event) => {
             if (event.key !== "Enter" && event.key !== " ") return;

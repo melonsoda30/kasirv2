@@ -4,7 +4,8 @@ import { Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CatalogSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
+import { getAccountBranches, getAdminBranch, useAuthStore } from "@/features/auth/auth-store";
+import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
 import { useProductCatalog } from './use-product-catalog';
 import { useProductStore } from "./product-store";
 import { ProductCard } from "./product-card";
@@ -17,9 +18,10 @@ import {
 } from "./product-filters";
 
 export function ProductsPage() {
-  const catalog = useProductCatalog();
+  const branchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
+  const catalog = useProductCatalog(branchId);
   const store = useAuthStore((state) => state.session?.account.store);
-  const items = useProductStore((state) => state.products);
+  const items = catalog.data ?? [];
   const updateProduct = useProductStore((state) => state.updateProduct);
   const categories = useProductCategories();
   const canManageCategories = useCanManageCategories();
@@ -38,12 +40,13 @@ export function ProductsPage() {
     : null;
   const [filters, setFilters] = useState(defaultProductFilters);
   const availableStores = getAccountBranches(store);
+  const branchNames = new Map(availableStores.map(({ id, name }) => [id, name]));
   const statusLabel = filters.status === "active" ? "Aktif" : "Nonaktif";
   const filterChips = [
-    ...(filters.store !== "all"
+    ...(!branchId && filters.store !== "all"
       ? [{
           key: "store" as const,
-          label: availableStores.find(({ id }) => id === filters.store)?.name ?? filters.store,
+          label: branchNames.get(filters.store) ?? filters.store,
         }]
       : []),
     ...(filters.status !== "all"
@@ -57,7 +60,7 @@ export function ProductsPage() {
   ];
   const products = items.filter(
     (product) =>
-      matchesProductFilters(product, filters) &&
+      matchesProductFilters(product, { ...filters, store: branchId ?? filters.store }) &&
       (category === null || product.category === category) &&
       product.title
         .toLocaleLowerCase("id-ID")
@@ -66,8 +69,12 @@ export function ProductsPage() {
 
   return (
     <>
-      <header className="products-toolbar sticky top-0 z-20 w-full border-b bg-background pt-[calc(env(safe-area-inset-top)+12px)]">
-        <div className="page-gutter flex h-9 gap-2">
+      <header className="products-toolbar sticky top-0 z-20 w-full border-b bg-background pt-[env(safe-area-inset-top)]">
+        <div className="page-gutter flex h-12 items-center justify-between gap-2">
+          <h1 className="min-w-0 text-lg font-semibold tracking-tight">Produk</h1>
+          <div className="min-w-0 max-w-[45%] empty:hidden"><AdminBranchSwitcher /></div>
+        </div>
+        <div className="page-gutter flex h-12 gap-2">
           <div className="min-w-0 flex-1">
             <Input
               type="search"
@@ -80,7 +87,7 @@ export function ProductsPage() {
           {canManageCategories && (
             <CategorySettingsDrawer categories={categories} />
           )}
-          <Button asChild size="icon">
+          <Button asChild size="icon" className="size-12">
             <Link to="/produk/tambah" aria-label="Tambah produk">
               <Plus size={18} aria-hidden="true" />
             </Link>
@@ -115,6 +122,7 @@ export function ProductsPage() {
           <ProductFilterDrawer
             filters={filters}
             stores={availableStores}
+            hideStore={!!branchId}
             onSave={setFilters}
           />
         </div>
@@ -157,8 +165,16 @@ export function ProductsPage() {
         {catalog.isSuccess && products.length > 0 && (
           <ul className="bento-catalog">
             {products.map((product) => (
-              <li key={product.id} className="bento-surface">
-                <ProductCard product={product} onUpdate={updateProduct} />
+              <li key={JSON.stringify([product.id, product.branchId])} className="bento-surface">
+                <ProductCard
+                  product={product}
+                  branchName={
+                    branchId === "all"
+                      ? product.branchName || branchNames.get(product.branchId ?? "") || product.branchId
+                      : undefined
+                  }
+                  onUpdate={updateProduct}
+                />
               </li>
             ))}
           </ul>

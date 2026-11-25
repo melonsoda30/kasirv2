@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -174,7 +176,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
   }
 
   return (
-    <PageLayout title={title} headerAction={headerAction} wide>
+    <PageLayout title={title} headerAction={headerAction} branchSwitcher={null} wide>
       <div className="space-y-4">
         <div className="bento-surface flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
           <h2 className="text-sm font-semibold">
@@ -389,7 +391,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
                         </ul>
                       </DrawerBody>
                       <DrawerFooter>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="modal-actions">
                           <DrawerClose asChild>
                             <Button
                               type="button"
@@ -464,7 +466,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
           if (!open && !cancelPending.isPending) setCancellation(null);
         }}
       >
-        <DialogContent showCloseButton={!cancellation?.lastItem}>
+        <DialogContent role="alertdialog" closeDisabled={cancelPending.isPending}>
           <DialogHeader>
             <DialogTitle>
               {cancellation?.lastItem
@@ -478,11 +480,11 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
             </DialogDescription>
           </DialogHeader>
           {cancelPending.isError && (
-            <p role="alert" className="text-sm text-destructive">
-              {cancelPending.error.message}
-            </p>
+            <DialogBody>
+              <p role="alert" className="text-destructive">{cancelPending.error.message}</p>
+            </DialogBody>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -505,7 +507,7 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
             >
               Batalkan pesanan
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageLayout>

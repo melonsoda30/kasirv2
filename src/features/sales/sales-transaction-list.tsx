@@ -7,16 +7,30 @@ import { getCashierBranch, useAuthStore } from "@/features/auth/auth-store";
 import { refreshCashSessionData } from "@/features/cash-session/cash-session-query";
 import {
   editSalePayment,
+  percentageOf,
+  refundSale,
   resolvePendingTransaction,
   type SalePaymentChanges,
+  type TransactionRefund,
 } from "@/features/orders/payment-details";
 import { fetchTransactionDetail } from "./sales-api";
 import { SalePaymentEditor } from "./sale-payment-editor";
+import { SaleRefundForm } from "./sale-refund-form";
 import { useProductStore } from "@/features/products/product-store";
+import type { Product } from "@/features/products/sample-products";
 import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { SkeletonImage } from "@/components/ui/skeleton-image";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Drawer,
   DrawerClose,
@@ -28,13 +42,15 @@ import {
   DrawerDescription,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { formatCurrency } from "@/lib/currency";
+import { formatCurrency, formatNominal } from "@/lib/currency";
 import type { Sale, SaleStatus } from "./sales-summary";
 
 const saleStatuses: Record<SaleStatus, { tone: StatusTone; label: string }> = {
   complete: { tone: "success", label: "Lunas" },
   pending: { tone: "warning", label: "Menunggu pembayaran" },
   delete: { tone: "danger", label: "Dibatalkan" },
+  refund_partial: { tone: "warning", label: "Refund parsial" },
+  refund_full: { tone: "danger", label: "Refund penuh" },
   unknown: { tone: "neutral", label: "Status belum tersedia" },
 };
 
@@ -80,11 +96,55 @@ function SaleInformation({ sale }: { sale: Sale }) {
   );
 }
 
+function SaleRefundInformation({ sale }: { sale: Sale }) {
+  const { refund, netRevenue } = sale;
+  if (!refund && netRevenue === undefined) return null;
+  const details = [
+    ...(refund?.amount !== undefined
+      ? [["Nominal refund", formatCurrency(refund.amount, 2)]]
+      : []),
+    ...(refund?.method
+      ? [["Metode refund", refund.method === "cash" ? "Tunai" : refund.method]]
+      : []),
+    ...(netRevenue !== undefined
+      ? [["Omzet bersih", formatCurrency(netRevenue, 2)]]
+      : []),
+    ...(refund?.restored !== undefined
+      ? [["Stok dikembalikan", `${formatNominal(refund.restored)} unit`]]
+      : []),
+    ...(refund?.reason ? [["Alasan refund", refund.reason]] : []),
+  ];
+  return (
+    <section aria-label="Rincian refund" className="space-y-2 border-t pt-3">
+      <h3 className="text-sm font-semibold">Rincian refund</h3>
+      <dl className="space-y-2 text-sm">
+        {details.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-4">
+            <dt className="shrink-0 text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 whitespace-pre-wrap wrap-anywhere text-right">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function SaleCardAmount({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="flex items-center justify-between gap-3 rounded-md bg-muted/60 px-3 py-2 text-sm">
+      <span className="text-foreground">{label}</span>
+      <span className="font-medium text-foreground tabular-nums">{value}</span>
+    </span>
+  );
+}
+
 function SaleCardContent({ sale }: { sale: Sale }) {
   const date = new Date(sale.occurredAt);
   const cash = ["tunai", "cash"].includes(
     sale.paymentMethod.trim().toLowerCase(),
   );
+  const refunded = sale.status === "refund_partial" || sale.status === "refund_full";
+  const refundAmount = sale.refund?.amount;
   return (
     <span className="flex flex-col gap-3">
       <span className="flex items-start justify-between gap-3">
@@ -112,12 +172,13 @@ function SaleCardContent({ sale }: { sale: Sale }) {
         </span>
       </span>
       {cash && sale.status !== "pending" && (
-        <span className="flex items-center justify-between gap-3 rounded-md bg-muted/60 px-3 py-2 text-sm">
-          <span className="text-foreground">Kembali</span>
-          <span className="font-medium text-foreground tabular-nums">
-            {formatCurrency(sale.change ?? Math.max(0, sale.paid - sale.total))}
-          </span>
-        </span>
+        <SaleCardAmount
+          label="Kembali"
+          value={formatCurrency(sale.change ?? Math.max(0, sale.paid - sale.total))}
+        />
+      )}
+      {refunded && refundAmount !== undefined && (
+        <SaleCardAmount label="Refund" value={formatCurrency(refundAmount, 2)} />
       )}
       {sale.note && (
         <span className="whitespace-pre-wrap break-words text-sm">
@@ -137,17 +198,27 @@ function SaleCardContent({ sale }: { sale: Sale }) {
   );
 }
 
+type RefundConfirmation = { sale: Sale; option: TransactionRefund };
+
 export function SalesTransactionList({
   sales,
   queue = false,
+  headerAction,
   renderActions,
+  catalogProducts,
 }: {
   sales: readonly Sale[];
   queue?: boolean;
+  headerAction?: ReactNode;
   renderActions?: (sale: Sale) => ReactNode;
+  catalogProducts?: readonly Product[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [view, setView] = useState<"detail" | "edit" | "cancel">("detail");
+  const [view, setView] = useState<"detail" | "edit" | "cancel" | "refund">(
+    "detail",
+  );
+  const [refundConfirmation, setRefundConfirmation] =
+    useState<RefundConfirmation | null>(null);
   const queryClient = useQueryClient();
   const username = useAuthStore(
     (state) => state.session?.account.account_username,
@@ -189,10 +260,39 @@ export function SalesTransactionList({
     },
     meta: { toast: false },
   });
-  const busy = edit.isPending || cancel.isPending;
+  const refund = useMutation({
+    mutationFn: ({ sale, option }: RefundConfirmation) =>
+      refundSale(sale, option, branchId),
+    onSuccess: (result) => {
+      setRefundConfirmation(null);
+      setView("detail");
+      toast.success("Refund berhasil diproses.", {
+        description: `Tunai ${formatCurrency(result.refund.amount, 2)} · Omzet bersih ${formatCurrency(result.netRevenue, 2)}`,
+      });
+    },
+    onSettled: async (_result, _error, { option }) => {
+      refreshCashSessionData(queryClient);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+        ...(!option.isPartial
+          ? [queryClient.invalidateQueries({ queryKey: ["products"] })]
+          : []),
+      ]);
+    },
+    retry: false,
+    meta: { toast: false },
+  });
+  const busy = edit.isPending || cancel.isPending || refund.isPending;
+  const currentSale = detail.data;
+  const refundDetailChanged =
+    !!refundConfirmation &&
+    (currentSale?.id !== refundConfirmation.sale.id ||
+      currentSale.status !== "complete" ||
+      currentSale.total !== refundConfirmation.sale.total ||
+      (!!branchId && currentSale.branchId !== branchId));
   const products = useProductStore((state) => state.products);
   const productImages = new Map(
-    products.map((product) => [
+    (catalogProducts ?? products).map((product) => [
       product.id,
       product.photo ||
         (product.image
@@ -200,7 +300,7 @@ export function SalesTransactionList({
           : ""),
     ]),
   );
-  if (!sales.length) return null;
+  if (!sales.length && !headerAction) return null;
   return (
     <section
       className={cn(!queue && "mt-6 space-y-3")}
@@ -212,24 +312,28 @@ export function SalesTransactionList({
           <h2 id="sales-transactions-title" className="font-semibold">
             Daftar transaksi
           </h2>
-          <span className="text-sm text-muted-foreground">
-            {sales.length} transaksi
-          </span>
+          {headerAction ?? (
+            <span className="text-sm text-muted-foreground">{sales.length} transaksi</span>
+          )}
         </div>
       )}
-      <ul className="grid min-w-0 grid-cols-1 gap-2">
+      {sales.length > 0 && <ul className="grid min-w-0 grid-cols-1 gap-2">
         {sales.map((listedSale) => {
           const detailLoading =
             detail.isPending || selectedId !== listedSale.id;
-          const sale =
+          const transaction =
             selectedId === listedSale.id && detail.data
               ? {
                   ...detail.data,
                   note: detail.data.note ?? listedSale.note,
                   salesperson:
                     detail.data.salesperson ?? listedSale.salesperson,
+                  refund: detail.data.refund ?? listedSale.refund,
+                  netRevenue: detail.data.netRevenue ?? listedSale.netRevenue,
                 }
               : listedSale;
+          const completedRefund = refund.data?.id === listedSale.id ? refund.data : undefined;
+          const sale = completedRefund ? { ...transaction, ...completedRefund } : transaction;
           let subtotal = sale.subtotal;
           if (
             subtotal === undefined &&
@@ -247,12 +351,16 @@ export function SalesTransactionList({
           }
           const additionalPrices =
             sale.additionalPrices?.filter(({ value }) => value !== 0) ?? [];
+          const paymentFeeRate = sale.paymentFee ?? 0;
+          const paymentFeeAmount = subtotal === undefined ? undefined : percentageOf(subtotal, paymentFeeRate);
           const discounts =
             sale.discounts?.filter(({ value }) => value !== 0) ?? [];
           const selected = selectedId === sale.id;
           const showingEdit = selected && view === "edit";
           const showingCancel = selected && view === "cancel";
-          const showingDetail = !showingEdit && !showingCancel;
+          const showingRefund = selected && view === "refund";
+          const showingDetail =
+            !showingEdit && !showingCancel && !showingRefund;
           const actionReady =
             !queue &&
             !detailLoading &&
@@ -262,14 +370,21 @@ export function SalesTransactionList({
             actionReady &&
             (sale.status === "complete" || sale.status === "pending");
           const canCancel = actionReady && sale.status === "pending";
+          const canRefund =
+            actionReady &&
+            !detail.isFetching &&
+            sale.status === "complete" &&
+            sale.total > 0;
           let drawerTitle = "Detail transaksi";
           if (showingEdit) drawerTitle = "Edit pembayaran";
           if (showingCancel) drawerTitle = "Batalkan transaksi?";
+          if (showingRefund) drawerTitle = "Refund transaksi";
           return (
             <li key={sale.id} className="min-w-0">
               <Drawer
-                dismissible={!busy}
+                dismissible={!busy && !refundConfirmation}
                 onOpenChange={(open) => {
+                  setRefundConfirmation(null);
                   setView("detail");
                   setSelectedId(open ? listedSale.id : null);
                 }}
@@ -280,7 +395,7 @@ export function SalesTransactionList({
                     aria-label={`Detail penjualan ${sale.id}, ${sale.store}`}
                     className="bento-surface w-full p-4 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <SaleCardContent sale={listedSale} />
+                    <SaleCardContent sale={completedRefund ? { ...listedSale, ...completedRefund } : listedSale} />
                   </button>
                 </DrawerTrigger>
                 <DrawerContent>
@@ -299,6 +414,18 @@ export function SalesTransactionList({
                       onSave={(changes) => edit.mutate({ sale, changes })}
                     />
                   )}
+                  {showingRefund && (
+                    <SaleRefundForm
+                      total={sale.total}
+                      available={canRefund}
+                      busy={refund.isPending}
+                      onBack={() => setView("detail")}
+                      onContinue={(option) => {
+                        refund.reset();
+                        setRefundConfirmation({ sale, option });
+                      }}
+                    />
+                  )}
                   {showingCancel && (
                     <>
                       <DrawerBody className="flow-panel space-y-2">
@@ -313,7 +440,7 @@ export function SalesTransactionList({
                         )}
                       </DrawerBody>
                       <DrawerFooter>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="modal-actions">
                           <Button
                             type="button"
                             variant="outline"
@@ -456,6 +583,18 @@ export function SalesTransactionList({
                                 </dl>
                               </div>
                             )}
+                            {paymentFeeRate > 0 && paymentFeeAmount !== 0 && (
+                              <div className="flex justify-between gap-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  Fee pembayaran{paymentFeeAmount !== undefined && ` (${paymentFeeRate.toLocaleString("id-ID")}%)`}
+                                </span>
+                                <span className="shrink-0 tabular-nums">
+                                  {paymentFeeAmount === undefined
+                                    ? `${paymentFeeRate.toLocaleString("id-ID")}%`
+                                    : formatCurrency(paymentFeeAmount)}
+                                </span>
+                              </div>
+                            )}
                             {discounts.length > 0 && (
                               <div className="space-y-1 border-t pt-2 text-sm">
                                 <h3 className="font-medium">Diskon</h3>
@@ -512,6 +651,7 @@ export function SalesTransactionList({
                                 </div>
                               )}
                           </section>
+                          <SaleRefundInformation sale={sale} />
                           <section
                             aria-label="Informasi transaksi"
                             className="border-t pt-3"
@@ -564,15 +704,14 @@ export function SalesTransactionList({
                       )}
                     </DrawerBody>
                   )}
-                  {showingDetail && (canEdit || canCancel) && (
+                  {showingDetail && (canEdit || canCancel || canRefund) && (
                     <DrawerFooter>
-                      <div
-                        className={cn("grid gap-2", canCancel && "grid-cols-2")}
-                      >
+                      <div className="modal-actions">
                         {canEdit && (
                           <Button
                             type="button"
                             variant="outline"
+                            disabled={busy}
                             onClick={() => {
                               edit.reset();
                               setView("edit");
@@ -585,6 +724,7 @@ export function SalesTransactionList({
                           <Button
                             type="button"
                             variant="destructive"
+                            disabled={busy}
                             onClick={() => {
                               cancel.reset();
                               setView("cancel");
@@ -593,10 +733,20 @@ export function SalesTransactionList({
                             Batalkan
                           </Button>
                         )}
+                        {canRefund && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={busy}
+                            onClick={() => setView("refund")}
+                          >
+                            Refund
+                          </Button>
+                        )}
                       </div>
                     </DrawerFooter>
                   )}
-                  {showingDetail && !canEdit && !canCancel && (
+                  {showingDetail && !canEdit && !canCancel && !canRefund && (
                     <DrawerFooter>
                       <DrawerClose asChild>
                         <Button type="button" variant="outline">
@@ -611,7 +761,90 @@ export function SalesTransactionList({
             </li>
           );
         })}
-      </ul>
+      </ul>}
+      {refundConfirmation && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !refund.isPending) setRefundConfirmation(null);
+          }}
+        >
+          <DialogContent
+            role="alertdialog"
+            closeDisabled={refund.isPending}
+            onPointerDownOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => {
+              if (refund.isPending) event.preventDefault();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {refundConfirmation.option.isPartial
+                  ? "Konfirmasi refund parsial?"
+                  : "Konfirmasi refund penuh?"}
+              </DialogTitle>
+              <DialogDescription>
+                Refund sebesar{" "}
+                {formatCurrency(
+                  refundConfirmation.option.isPartial
+                    ? refundConfirmation.option.nominal
+                    : refundConfirmation.sale.total,
+                  2,
+                )}{" "}
+                untuk transaksi {refundConfirmation.sale.id} akan dikembalikan
+                secara tunai. {refundConfirmation.option.isPartial
+                  ? "Barang tetap tercatat terjual."
+                  : "Stok barang akan dikembalikan."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody className="space-y-3">
+              <div className="bento-surface space-y-1 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Alasan refund
+                </p>
+                <p className="whitespace-pre-wrap wrap-anywhere">
+                  {refundConfirmation.option.reason}
+                </p>
+              </div>
+              {refund.isError && (
+                <p role="alert" className="text-destructive">
+                  {refund.error.message}
+                </p>
+              )}
+              {refundDetailChanged && !refund.isError && (
+                <p role="alert" className="text-destructive">
+                  Detail transaksi berubah. Periksa kembali sebelum
+                  melanjutkan.
+                </p>
+              )}
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={refund.isPending}
+                onClick={() => setRefundConfirmation(null)}
+              >
+                Kembali
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                loading={refund.isPending}
+                disabled={
+                  refundDetailChanged ||
+                  detail.isFetching ||
+                  detail.isError ||
+                  refund.isError
+                }
+                onClick={() => refund.mutate(refundConfirmation)}
+              >
+                Refund
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </section>
   );
 }

@@ -11,6 +11,7 @@ import { SelectCombobox } from "@/components/select-combobox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -19,12 +20,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AddPaymentMethod } from "@/features/settings/add-payment-method";
+import { PaymentFeeBearerField } from "@/features/settings/payment-fee-bearer-field";
 import { SettingCard } from "@/features/settings/setting-card";
 import {
   StoreSettingsPage,
   type SaveStoreSettings,
 } from "@/features/settings/store-settings-page";
 import {
+  isPaymentFeeBearer,
   paymentImageUrl,
   type StoreSettings,
 } from "@/features/settings/store-settings-query";
@@ -146,7 +149,8 @@ function PaymentMethodList({
         }}
       >
         <DialogContent
-          showCloseButton={false}
+          role="alertdialog"
+          closeDisabled={pending}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             const target = deleteTrigger.current?.isConnected
@@ -165,9 +169,9 @@ function PaymentMethodList({
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+            <DialogBody>
+              <p role="alert" className="text-destructive">{error}</p>
+            </DialogBody>
           )}
           <DialogFooter>
             <Button
@@ -204,6 +208,7 @@ function PaymentMethodCard({
   update: SaveStoreSettings;
   onDelete: (button: HTMLButtonElement) => void;
 }) {
+  const isCash = ["cash", "tunai"].includes(method.type.trim().toLowerCase());
   const hasQris =
     Boolean(method.image) ||
     [method.code, method.title, method.type].some((value) =>
@@ -267,6 +272,10 @@ function PaymentMethodCard({
         const upload =
           values && file ? { file, paymentCode: method.code } : undefined;
         const feeInput = values?.get("fee");
+        const feeBearer = values?.get("fee_bearer");
+        if (values && !isCash && !isPaymentFeeBearer(feeBearer)) {
+          throw new Error("Pilih penanggung biaya.");
+        }
         const amount =
           typeof feeInput === "string" ? Number(feeInput) : undefined;
         const feeActive = values?.get("fee_status") === "true";
@@ -302,7 +311,12 @@ function PaymentMethodCard({
           return {
             payment: current.payment.map((entry) =>
               entry.code === currentMethod.code
-                ? { ...entry, title: title ?? entry.title, is_active: active }
+                ? {
+                    ...entry,
+                    title: title ?? entry.title,
+                    is_active: active,
+                    ...(!isCash && isPaymentFeeBearer(feeBearer) && { fee_bearer: feeBearer }),
+                  }
                 : entry,
             ),
             ...(feeChanged &&
@@ -341,6 +355,7 @@ function PaymentMethodCard({
             </label>
           </>
         )}
+        {!isCash && <PaymentFeeBearerField initialValue={method.fee_bearer} />}
         {hasQris && (
           <ImageInput
             id={`payment-image-${method.code}`}

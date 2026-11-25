@@ -1,5 +1,6 @@
 import { isAxiosError } from 'axios'
 import { z } from 'zod'
+import { getBranchFilterId } from '@/features/auth/auth-store'
 import { isEmptyListResponse, request } from '@/lib/api'
 
 const amount = z.coerce.number().finite()
@@ -28,6 +29,7 @@ const sessionSchema = z.object({
   handover_amount: amount.nullish(),
   handover_from_user_name: text,
   handover_mismatch: amount.nullish(),
+  notes: text,
   close_type: text,
   close_notes: text,
   closed_by_name: text,
@@ -112,8 +114,14 @@ const cashSessionList = z.object({ sessions: z.array(sessionSchema), count: amou
   .refine(({ sessions, count }) => sessions.length === 0 || count !== undefined)
   .transform(({ sessions, count }) => ({ sessions, count: count ?? 0 }))
 
-export const fetchCashSessions = (filters: Record<string, string>, signal?: AbortSignal) =>
-  shiftRequest('list_session', cashSessionList, { filters, signal, emptyData: { sessions: [], count: 0 } }).then(({ data }) => data)
+export const fetchCashSessions = ({ branch_id, ...filters }: Record<string, string>, signal?: AbortSignal) => {
+  const branchId = getBranchFilterId(branch_id)
+  return shiftRequest('list_session', cashSessionList, {
+    filters: { ...filters, ...(branchId && { branch_id: branchId }) },
+    signal,
+    emptyData: { sessions: [], count: 0 },
+  }).then(({ data }) => data)
+}
 
 const reportTransactionSchema = z.object({
   id_trx: identifier,
@@ -135,10 +143,4 @@ export const fetchCashSessionReport = (sessionId: string, signal?: AbortSignal) 
     by_method: z.array(z.object({ method: z.string(), count: amount, total: amount })),
   }), { filters: { session_id: sessionId }, signal }).then(({ data }) => data)
 
-export async function fetchCashSessionExport(filters: Record<string, string>) {
-  const response = await request<unknown>({ url: '/download.php', method: 'GET', params: { action: 'export_session', ...filters } })
-  if (isEmptyListResponse(response)) return []
-  const parsed = z.object({ status: z.literal('success'), data: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))) }).safeParse(response)
-  if (!parsed.success) throw new CashSessionError('Gagal mengunduh laporan shift.')
-  return parsed.data.data
-}
+export { fetchCashSessionExport } from '@/features/reports/report-api'

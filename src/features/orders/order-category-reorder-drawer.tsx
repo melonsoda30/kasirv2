@@ -184,7 +184,7 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
         </DrawerHeader>
         <motion.div
           layoutScroll
-          className="drawer-body space-y-6 py-4"
+          className="modal-body space-y-6"
         >
           {query?.isPending && (
             <SkeletonGroup label="Memuat kategori">
@@ -254,7 +254,7 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
           )}
         </motion.div>
         <DrawerFooter>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="modal-actions">
             <DrawerClose asChild>
               <Button
                 type="button"

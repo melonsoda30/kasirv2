@@ -4,17 +4,23 @@ import { API_BASE_URL, isEmptyListResponse, request } from "@/lib/api";
 
 type SettingItem = { code: string; title: string; is_active: boolean };
 
+export type PaymentFeeBearer = "store" | "customer";
+
 export type StoreSettings = {
   store_id: string;
   shift: (SettingItem & { start_time?: string; end_time?: string })[];
   shift_mode?: "none" | "shift";
   cash_tolerance?: number;
   ppn: { value: number; is_active: boolean };
-  payment: (SettingItem & { type: string; fee_code: string | null; image?: string })[];
+  payment: (SettingItem & { type: string; fee_code: string | null; fee_bearer?: PaymentFeeBearer | null; image?: string })[];
   fee: (Omit<SettingItem, "is_active"> & { type: string; fee: number; fee_type: string; is_active?: boolean })[];
 };
 
 export const settingsUrl = "/admin/setting.php";
+
+export function isPaymentFeeBearer(value: unknown): value is PaymentFeeBearer {
+  return value === "store" || value === "customer";
+}
 
 export async function fetchStoreSettings(signal?: AbortSignal): Promise<StoreSettings | null> {
   const response = await request<{ status: string; msg?: string; data?: StoreSettings | null } | null>({

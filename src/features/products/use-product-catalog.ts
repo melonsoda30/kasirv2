@@ -4,16 +4,16 @@ import { useAuthStore } from '../auth/auth-store'
 import { fetchProducts, PRODUCT_EVENT_ID } from './product-api'
 import { useProductStore } from './product-store'
 
-export function useProductCatalog() {
+export function useProductCatalog(branchId = PRODUCT_EVENT_ID, enabled = true) {
   const username = useAuthStore((state) => state.session?.account.account_username)
   const setProducts = useProductStore((state) => state.setProducts)
   const query = useQuery({
-    queryKey: ['products', 'catalog', username, PRODUCT_EVENT_ID],
-    queryFn: ({ signal }) => fetchProducts(signal),
-    enabled: !!username,
+    queryKey: ['products', 'catalog', username, branchId],
+    queryFn: ({ signal }) => fetchProducts(signal, branchId),
+    enabled: !!username && enabled,
   })
   useEffect(() => {
-    if (query.data) setProducts(query.data)
-  }, [query.data, setProducts])
+    if (enabled && branchId === PRODUCT_EVENT_ID && query.data) setProducts(query.data)
+  }, [branchId, enabled, query.data, setProducts])
   return query
 }

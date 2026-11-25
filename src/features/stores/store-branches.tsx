@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle,
@@ -97,7 +97,7 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
             <DrawerTitle>{editingBranch ? "Edit cabang" : "Tambah cabang"}</DrawerTitle>
             <DrawerDescription className="sr-only">Form pengelolaan cabang toko.</DrawerDescription>
           </DrawerHeader>
-          <form key={editingBranch?.id ?? "new"} id="store-branch-form" onSubmit={submit} className="drawer-body">
+          <form key={editingBranch?.id ?? "new"} id="store-branch-form" onSubmit={submit} className="modal-body">
             <fieldset disabled={save.isPending} className="min-w-0 space-y-2">
               <label htmlFor="store-branch-name" className="block text-sm font-medium">Nama cabang</label>
               <Input id="store-branch-name" name="name" defaultValue={editingBranch?.name} required
@@ -107,7 +107,7 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
               <p role="alert" className="mt-4 text-sm text-destructive">{validationError || save.error?.message}</p>
             )}
           </form>
-          <DrawerFooter className="grid grid-cols-2">
+          <DrawerFooter actions>
             <Button type="button" variant="outline" disabled={save.isPending} onClick={closeEditor}>Batal</Button>
             <Button type="submit" form="store-branch-form" loading={save.isPending}>Simpan</Button>
           </DrawerFooter>
@@ -115,12 +115,14 @@ export function StoreBranches({ storeId, branches }: { storeId: string; branches
       </Drawer>
 
       <Dialog open={!!deletingBranch} onOpenChange={(open) => { if (!open) closeEditor(); }}>
-        <DialogContent showCloseButton={false} onCloseAutoFocus={restoreFocus}>
+        <DialogContent role="alertdialog" closeDisabled={save.isPending} onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>Hapus cabang?</DialogTitle>
             <DialogDescription>Cabang {deletingBranch?.name} akan dihapus.</DialogDescription>
           </DialogHeader>
-          {save.error && <p role="alert" className="text-sm text-destructive">{save.error.message}</p>}
+          {save.error && (
+            <DialogBody><p role="alert" className="text-destructive">{save.error.message}</p></DialogBody>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={save.isPending} onClick={closeEditor}>Batal</Button>
             <Button type="button" variant="destructive" loading={save.isPending} onClick={() => {

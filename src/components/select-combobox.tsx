@@ -45,7 +45,7 @@ export function SelectCombobox({ options, value, onChange, disabled = false, inv
           aria-labelledby={inputProps['aria-labelledby']}
           aria-describedby={inputProps['aria-describedby']}
           aria-invalid={invalid ?? inputProps['aria-invalid']}
-          className={cn('flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive dark:bg-input/30', inputProps.className)}
+          className={cn('flex h-12 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive dark:bg-input/30', inputProps.className)}
         >
           <span className={cn('truncate', !value && 'text-muted-foreground')}>
             {triggerLabel ?? byValue.get(value)?.label ?? (value || inputProps.placeholder)}

@@ -4,6 +4,7 @@ import type { LinkProps } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
 
 export function PageLayout({
   title,
@@ -11,6 +12,7 @@ export function PageLayout({
   prevLink,
   prevSearch,
   headerAction,
+  branchSwitcher = <AdminBranchSwitcher />,
   wide = false,
 }: {
   title?: string;
@@ -18,6 +20,7 @@ export function PageLayout({
   prevLink?: LinkProps['to'];
   prevSearch?: LinkProps['search'];
   headerAction?: ReactNode;
+  branchSwitcher?: ReactNode;
   wide?: boolean;
 }) {
   return (
@@ -32,8 +35,9 @@ export function PageLayout({
                 </Link>
               </Button>
             )}
-            {title && <h1 className="text-lg font-semibold tracking-tight">{title}</h1>}
-            {headerAction && <div className="ml-auto">{headerAction}</div>}
+            {title && <h1 className="min-w-0 flex-1 text-lg font-semibold tracking-tight">{title}</h1>}
+            {title && <div className="min-w-0 max-w-[45%] empty:hidden">{branchSwitcher}</div>}
+            {headerAction && <div className="ml-auto shrink-0">{headerAction}</div>}
           </div>
         </header>
       )}

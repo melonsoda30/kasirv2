@@ -62,6 +62,7 @@ export function PaymentProof({
           <Button
             type="button"
             variant="outline"
+            size="lg"
             disabled={disabled}
             onClick={() => gallery.current?.click()}
           >
@@ -70,6 +71,7 @@ export function PaymentProof({
           <Button
             type="button"
             variant="outline"
+            size="lg"
             disabled={disabled}
             onClick={() => camera.current?.click()}
           >
@@ -124,7 +126,7 @@ export function PaymentProof({
         )}
       </DrawerBody>
       <DrawerFooter>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="modal-actions">
           <DrawerClose asChild>
             <Button type="button" variant="outline" disabled={busy}>
               Batal

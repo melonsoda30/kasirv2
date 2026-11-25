@@ -6,7 +6,7 @@ import type { Product } from '@/features/products/sample-products'
 import { productKey } from './order-store'
 
 export function isLowStock(product: Product, remaining = product.stock) {
-  return product.active && isLowStockQuantity(remaining)
+  return product.active && product.useStock !== false && isLowStockQuantity(remaining)
 }
 
 const indexProducts = (products: Product[]) => ({

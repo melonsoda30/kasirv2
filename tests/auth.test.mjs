@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { registerHooks } from 'node:module'
+import { createRequire, registerHooks } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -232,6 +232,53 @@ test('the legacy order route points cashiers to their home and stays available t
   }
 })
 
+test('admin branch selection is required per login and independent of cashier mode', async () => {
+  const { getAdminBranch, getAdminBranches, getCashierBranch, getSuggestedAdminBranch, isAdminMode } = await import('../src/features/auth/auth-store.ts')
+  const { setSession, setAdminBranch, setCashierBranch, replaceSessionTokens, clearSession } = useAuthStore.getState()
+  const account = { account_id: 'branch-admin', account_username: 'branch-admin', account_role: 'admin', event_level: 'administrator', store: adminBranches }
+  const session = { account, token: 'branch-admin-token', expiresAt: Date.now() + 60_000 }
+  try {
+    setSession(session, false)
+    assert.equal(isAdminMode(getAuthSession()), true)
+    assert.equal(getAdminBranch(getAuthSession()), undefined)
+    assert.deepEqual(getAdminBranches(account).map(({ id }) => id), ['all', 'BC-001', 'BC-002'])
+    assert.equal(setAdminBranch('all'), true)
+    assert.equal(getAdminBranch(getAuthSession())?.name, 'Semua cabang')
+    assert.equal(JSON.parse(sessionStorage.getItem('kasirv2.auth')).adminBranchId, 'all')
+    assert.equal(setAdminBranch('OTHER'), false)
+    assert.equal(setAdminBranch('BC-002'), true)
+    assert.equal(getAdminBranch(getAuthSession())?.id, 'BC-002')
+    assert.equal(JSON.parse(sessionStorage.getItem('kasirv2.auth')).adminBranchId, 'BC-002')
+    assert.equal(getAuthSession().account.store.branch_id, 'all')
+    assert.equal(setCashierBranch('BC-001'), true)
+    assert.equal(isAdminMode(getAuthSession()), false)
+    assert.equal(getAdminBranch(getAuthSession()), undefined)
+    assert.equal(getCashierBranch(getAuthSession())?.id, 'BC-001')
+    assert.equal(setAdminBranch('all'), false)
+    assert.equal(replaceSessionTokens(session.token, { token: 'branch-admin-new-token', expiresAt: session.expiresAt }), true)
+    assert.equal(getAuthSession().adminBranchId, 'BC-002')
+    assert.equal(getCashierBranch(getAuthSession())?.id, 'BC-001')
+    assert.equal(setCashierBranch(), true)
+    assert.equal(getAdminBranch(getAuthSession())?.id, 'BC-002')
+    assert.equal(setAdminBranch('all'), true)
+
+    clearSession()
+    setSession(session, true)
+    assert.equal(getAdminBranch(getAuthSession()), undefined)
+    assert.equal(getSuggestedAdminBranch(account)?.id, 'all')
+    const restricted = { ...account, store: { ...account.store, all_branches: false, branch_id: 'BC-001' } }
+    assert.deepEqual(getAdminBranches(restricted).map(({ id }) => id), ['BC-001'])
+    setSession({ ...session, account: restricted }, true)
+    assert.equal(getSuggestedAdminBranch(restricted)?.id, 'BC-001')
+    assert.equal(setAdminBranch('all'), false)
+    assert.equal(setAdminBranch('BC-002'), false)
+    assert.equal(setAdminBranch('BC-001'), true)
+    assert.equal(JSON.parse(localStorage.getItem('kasirv2.auth')).adminBranchId, 'BC-001')
+  } finally {
+    clearSession()
+  }
+})
+
 test('admin cashier mode requires an assigned branch and keeps the account on token replacement', async () => {
   const { orderOwner, useOrderStore } = await import('../src/features/orders/order-store.ts')
   const { cashSessionAllowsSales } = await import('../src/features/cash-session/cash-session-query.ts')
@@ -349,15 +396,19 @@ test('admin user mutations encode optional credentials, branch placement, binary
     assert.equal(await calls[0].img.text(), 'photo')
     delete calls[0].img
     await changeUser({ action: 'add_user', fields: { username: 'admin04', level_user: 'Administrator' } })
-    await changeUser({ action: 'edit_user', userId: '4', fields: { address: '', is_cashier: false } })
-    await changeUser({ action: 'edit_user', userId: '4', fields: { branch_id: ' BC-002 ' } })
+    const fields = {
+      username: 'admin04', fullname: 'Admin', email: 'admin04@kasir.test', phone: '081300000000',
+      address: '', level_user: 'Administrator', is_cashier: false,
+    }
+    await changeUser({ action: 'edit_user', userId: '4', fields: { ...fields, branch_id: '' } })
+    await changeUser({ action: 'edit_user', userId: '4', fields: { ...fields, branch_id: ' BC-002 ' } })
     await changeUser({ action: 'status_user', userId: '4', status: 'noactive' })
     await changeUser({ action: 'status_user', userId: '4', status: 'active' })
     assert.deepEqual(calls, [
       { action: 'add_user', username: 'kasir04', fullname: 'Kasir', is_cashier: '1', password: ' test password ', branch_id: 'BC-001' },
       { action: 'add_user', username: 'admin04', level_user: 'Administrator' },
-      { action: 'edit_user', user_id: '4', address: '', is_cashier: '0' },
-      { action: 'edit_user', user_id: '4', branch_id: 'BC-002' },
+      { action: 'edit_user', user_id: '4', ...fields, is_cashier: '0', branch_id: '' },
+      { action: 'edit_user', user_id: '4', ...fields, is_cashier: '0', branch_id: 'BC-002' },
       { action: 'status_user', user_id: '4', status: 'noactive' },
       { action: 'status_user', user_id: '4', status: 'active' },
     ])
@@ -379,7 +430,7 @@ test('admin user mutations encode optional credentials, branch placement, binary
   }
 })
 
-test('dashboard sends independent report periods and keeps the shift summary independent', async () => {
+test('legacy dashboard endpoints accept independent report periods and daily shift summaries', async () => {
   const { fetchDashboard } = await import('../src/features/dashboard/dashboard-api.ts')
   const summary = {
     mode: 'shift', use_session: true, date: '2026-11-19', sessions: [{ session_id: '1' }],
@@ -479,6 +530,69 @@ test('dashboard sends independent report periods and keeps the shift summary ind
   }
 })
 
+test('dashboard summary returns panels from one report with a separate chart window and shift date', async () => {
+  const { fetchDashboard } = await import('../src/features/dashboard/dashboard-api.ts')
+  const signal = new AbortController().signal
+  const period = {
+    period: 'month', start_date: '2026-11-01', end_date: '2026-11-30',
+    previous_start_date: '2026-10-01', previous_end_date: '2026-10-25',
+  }
+  const metric = { value: '290265', previous: 230000, grow: '26,2 %' }
+  const sections = {
+    kpi: { revenue: metric, trx_count: { value: 5, previous: 4, grow: '25 %' },
+      items_sold: { value: 8, previous: 3, grow: '166,7 %' }, aov: { value: 58053, previous: 57500, grow: '1 %' } },
+    revenue: {
+      chart_start_date: '2026-10-27', chart_end_date: '2026-11-25', chart_granularity: 'day',
+      labels: ['27/10/26', '28/10/26'], datasets: [{ label: 'Omzet', data: [0, 11655] }],
+    },
+    top_product: { data: [{ product_id: 'PE001', product_name: 'Air mineral', product_img: '', branch_id: 'BC-002', branch_name: 'Loka 2', qty: 3, revenue: 10500 }] },
+    top_kasir: { data: [{ user_id: 2, name: 'Kasir Demo', foto: '', revenue: 290265 }] },
+    top_branch: { data: [{ branch_id: 'BC-002', branch_name: 'Loka 2', revenue: 245310, share: 84.51 }] },
+    payment_mix: { data: [{ method: 'cash', trx_count: 3, revenue: 44955, fee_total: 0 }] },
+    peak_hour: { data: Array.from({ length: 24 }, (_, hour) => ({ hour, trx_count: 0, revenue: 0 })) },
+    category_mix: { data: [{ category: 'satuan', qty: 6, revenue: 105615 }] },
+    session_summary: {
+      mode: 'shift', use_session: true, date: '2026-11-25', sessions: [], count: 2, open_count: 1,
+      total_omzet: 290265, total_cash_in: 44955, total_difference: -5000, exceeded_count: 1, cash_tolerance: 0,
+    },
+  }
+  let payload = { period, ...sections, meta: { available: Object.keys(sections), hidden: [] } }
+  const calls = []
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/admin/dashboard.php')
+    assert.equal(config.method, 'get')
+    assert.equal(config.signal, signal)
+    calls.push(config.params)
+    return { config, status: 200, headers: {}, data: { status: 'success', data: payload } }
+  }
+  const report = await fetchDashboard('summary', signal, { period: 'month' })
+  assert.deepEqual(report, {
+    ...payload,
+    kpi: { ...sections.kpi, revenue: { ...metric, value: 290265 } },
+    top_kasir: { data: [{ ...sections.top_kasir.data[0], user_id: '2' }] },
+  })
+  assert.notEqual(report.kpi.revenue.value, report.revenue.datasets[0].data.reduce((total, value) => total + value, 0))
+  assert.equal(report.session_summary.date, '2026-11-25')
+
+  const range = { period: 'range', startDate: '2026-11-01', endDate: '2026-11-05' }
+  payload = {
+    period: { ...period, period: 'range', end_date: range.endDate },
+    kpi: sections.kpi,
+    revenue: sections.revenue,
+    peak_hour: sections.peak_hour,
+    meta: { available: ['kpi', 'revenue', 'peak_hour'], hidden: [{ key: 'top_product', reason: 'Belum ada item terjual' }] },
+  }
+  const limited = await fetchDashboard('summary', signal, range)
+  assert.deepEqual(limited.meta, payload.meta)
+  assert.equal(limited.top_product, undefined)
+  assert.equal(limited.session_summary, undefined)
+  assert.deepEqual(calls, [{ action: 'summary', period: 'month' }, { action: 'summary', ...range }])
+  await fetchDashboard('summary', signal, range, 'BC-002')
+  assert.deepEqual(calls.at(-1), { action: 'summary', ...range, branch_id: 'BC-002' })
+  await fetchDashboard('summary', signal, range, 'all')
+  assert.deepEqual(calls.at(-1), { action: 'summary', ...range })
+})
+
 test('dashboard restores saved periods by report, account and branch', async () => {
   const { dashboardPeriodFilter, readDashboardFilter, saveDashboardFilter } = await import('../src/features/dashboard/dashboard-filters.ts')
   const account = { account_id: 'admin-one', store: { id: 'store-one', branch_id: 'branch-one' } }
@@ -487,6 +601,10 @@ test('dashboard restores saved periods by report, account and branch', async () 
   saveDashboardFilter(account, 'profit_statistic', range)
 
   assert.deepEqual(readDashboardFilter(account, 'total_earning'), { period: 'week' })
+  assert.deepEqual(readDashboardFilter(account, 'summary'), { period: 'week' })
+  saveDashboardFilter(account, 'summary', { period: 'year' })
+  assert.deepEqual(readDashboardFilter(account, 'summary'), { period: 'year' })
+  assert.deepEqual(readDashboardFilter({ ...account, account_id: 'admin-two' }, 'summary'), { period: 'today' })
   const { period, dateRange } = readDashboardFilter(account, 'profit_statistic')
   assert.deepEqual(dashboardPeriodFilter(period, dateRange), range)
   saveDashboardFilter(account, 'profit_statistic', dashboardPeriodFilter('month', dateRange))
@@ -496,12 +614,12 @@ test('dashboard restores saved periods by report, account and branch', async () 
   assert.deepEqual(readDashboardFilter({ ...account, store: { ...account.store, branch_id: 'branch-two' } }, 'total_earning'), { period: 'today' })
 })
 
-test('product catalog maps API records and sends fixed all-branch params with bearer authorization', async () => {
+test('product catalog maps API records and sends the requested branch with bearer authorization', async () => {
   const { fetchProducts, mapProductRecord } = await import('../src/features/products/product-api.ts')
   const { useProductStore } = await import('../src/features/products/product-store.ts')
   const menu = {
     status: 'active', product_sku: 'PE00048', store_id: 'store-0328',
-    branch_id: 'BC-001', stock_quantity: 900,
+    branch_id: 'BC-001', branch_name: ' Loka 1 ', stock_quantity: 900,
     product_category_name: 'Satuan', product_category: 'satuan',
     product_img: '../../data-assets/upload/product/PE00048/PE00048.png?v=1794884307',
     product_name: 'DHC Perfect UV Milk ', product_price: '295000',
@@ -516,11 +634,11 @@ test('product catalog maps API records and sends fixed all-branch params with be
   const products = await fetchProducts()
   assert.equal(sent.url, '/admin/product')
   assert.equal(sent.method, 'get')
-  assert.deepEqual(sent.params, { action: 'list_product', category: 'all', search: '', status: 'all', menu_id: 'all', branch_id: 'all' })
+  assert.deepEqual(sent.params, { action: 'list_product', category: 'all', search: '', status: 'all', menu_id: 'all' })
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-token-only')
   assert.deepEqual(products[0], {
     id: 'PE00048', title: 'DHC Perfect UV Milk', price: 295000, category: 'satuan', categoryName: 'Satuan',
-    store: 'store-0328', storeId: 'store-0328', branchId: 'BC-001',
+    store: 'store-0328', storeId: 'store-0328', branchId: 'BC-001', branchName: 'Loka 1',
     photo: 'https://kasirv2.dhcsupplement.co.id/data-assets/upload/product/PE00048/PE00048.png?v=1794884307',
     image: '', description: 'Deskripsi produk', discountType: 'Tanpa diskon', discount: 0, active: true, stock: 900,
   })
@@ -539,6 +657,7 @@ test('product catalog maps API records and sends fixed all-branch params with be
   assert.equal(updated.price, 18000)
   assert.equal(mapProductRecord({ ...menu, stock_quantity: '12' }).stock, 12)
   assert.equal(mapProductRecord({ ...menu, stock_quantity: -5 }).stock, 0)
+  assert.equal(mapProductRecord({ ...menu, branch_name: ' ' }).branchName, undefined)
   assert.equal(useProductStore.getState().products.length, 0)
   useProductStore.getState().setProducts(products)
   assert.equal(useProductStore.getState().products.length, 1)
@@ -546,6 +665,16 @@ test('product catalog maps API records and sends fixed all-branch params with be
   assert.equal(useProductStore.getState().products.length, 0)
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: [menu] })
   assert.deepEqual(await fetchProducts(), products)
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.params.branch_id, 'BC-002')
+    return { config, status: 200, headers: {}, data: [menu, { ...menu, branch_id: 'BC-002' }] }
+  }
+  assert.deepEqual((await fetchProducts(undefined, 'BC-002')).map(({ branchId }) => branchId), ['BC-002'])
+  api.defaults.adapter = async (config) => {
+    assert.equal(Object.hasOwn(config.params, 'branch_id'), false)
+    return { config, status: 200, headers: {}, data: [menu, { ...menu, branch_id: 'BC-002' }] }
+  }
+  assert.deepEqual((await fetchProducts(undefined, 'all')).map(({ branchId }) => branchId), ['BC-001', 'BC-002'])
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: { status: 'error', msg: 'Menu unavailable', data: [] } })
   await assert.rejects(fetchProducts(), /Menu unavailable/)
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: { message: 'Invalid response' } })
@@ -568,7 +697,7 @@ test('Order reads the product endpoint and maps branch stock, discounts, and cat
   try {
     let body = { status: 'success', msg: 'Successfully Get Products', data: [
       product,
-      { ...product, branch: 'BC-002', status: 'noactive', stock: 0, img: 'photo.png', discount_type: 'percent', discount: '10' },
+      { ...product, branch: 'BC-002', status: 'noactive', stock: 0, use_stock: 'false', img: 'photo.png', discount_type: 'percent', discount: '10' },
     ] }
     api.defaults.adapter = async (config) => {
       assert.equal(config.url, '/product/product')
@@ -585,6 +714,7 @@ test('Order reads the product endpoint and maps branch stock, discounts, and cat
       description: 'Air mineral dalam kemasan 600ml', discount: 0, discountType: 'Tanpa diskon', active: true, stock: 100,
     })
     assert.equal(inactive.stock, 0)
+    assert.equal(inactive.useStock, false)
     assert.equal(inactive.active, false)
     assert.equal(inactive.discount, 10)
     assert.equal(inactive.discountType, 'Persentase (%)')
@@ -625,7 +755,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
   const { paymentTotals, savePayment } = await import('../src/features/orders/payment-details.ts')
   const edc = {
     payment_code: 'qris_edc', payment_method: 'EDC QRIS', payment_type: 'edc',
-    fee_code: 'qris_edc', fee: 0.7, fee_type: 'percent', image: '',
+    fee_code: 'qris_edc', fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', image: '',
     is_active: true, fee_active: true, fee_found: true,
   }
   const signal = new AbortController().signal
@@ -652,6 +782,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     }
     const [card, missingFee, cash, qris] = await fetchPaymentMethods(signal)
     assert.deepEqual(card.fee, { amount: 0.7, type: 'percent' })
+    assert.equal(card.feeBearer, 'customer')
     assert.equal(card.kind, 'noncash')
     assert.equal(missingFee.code, 'credit_on_us')
     assert.equal(missingFee.missingFee, true)
@@ -709,7 +840,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
 
     const additionalPrices = [...receipt.additionalPrices, { title: 'Layanan', value: 200 }]
     const discounts = [...receipt.discounts, { title: 'Voucher', type: 'fixed', value: 250 }]
-    const totals = paymentTotals(receipt.order, additionalPrices, discounts, card.fee)
+    const totals = paymentTotals(receipt.order, additionalPrices, discounts, card)
     assert.equal(totals.total, 6062)
     assert.deepEqual(totals.discountAmounts, [332, 250])
     await savePayment({ ...receipt, ...totals, additionalPrices, discounts }, cashier)
@@ -719,6 +850,26 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     assert.equal(sent.data.get('discounts[1][title]'), 'Voucher')
     assert.equal(sent.data.get('discounts[1][type]'), 'fixed')
     assert.equal(sent.data.get('discounts[1][value]'), '250')
+    for (const feeBearer of ['store', null, undefined]) {
+      const method = { ...card, feeBearer }
+      const totals = paymentTotals(receipt.order, additionalPrices, discounts, method)
+      assert.equal(totals.methodFeeAmount, 0)
+      assert.equal(totals.total, 6020)
+      await savePayment({ ...receipt, ...totals, method, additionalPrices, discounts }, cashier)
+      assert.equal(sent.data.get('payment_total_price'), '6020')
+      assert.equal(sent.data.has('payment_fee'), false)
+      assert.equal(sent.data.has('payment_additional_price[2][value]'), false)
+    }
+    const fixedMethod = { ...card, fee: { amount: 500, type: 'flat' } }
+    for (const feeBearer of ['store', 'customer']) {
+      const method = { ...fixedMethod, feeBearer }
+      const totals = paymentTotals(receipt.order, [], [], method)
+      const amount = feeBearer === 'customer' ? 500 : 0
+      assert.equal(totals.methodFeeAmount, amount)
+      assert.equal(totals.total, 6300 + amount)
+      await savePayment({ ...receipt, ...totals, method, additionalPrices: [], discounts: [] }, cashier)
+      assert.equal(sent.data.get('payment_additional_price[0][value]'), amount ? '500' : null)
+    }
     const capped = paymentTotals(receipt.order, [], [discounts[0], { ...discounts[1], value: 9000 }])
     assert.equal(capped.total, 0)
     assert.deepEqual(capped.discountAmounts, [315, 5985])
@@ -844,7 +995,7 @@ test('category API preserves slugs and order and sends category mutations', asyn
   assert.deepEqual(Object.fromEntries(sent.data), { category_id: '2', action: 'delete_category' })
 })
 
-test('add and edit products send store IDs, discount codes and binary images', async () => {
+test('add and edit products send store IDs, discounts, binary images and stock settings', async () => {
   const { saveProduct, mapProductRecord } = await import('../src/features/products/product-api.ts')
   const { productSchema } = await import('../src/features/products/product-schema.ts')
   let sent
@@ -855,7 +1006,7 @@ test('add and edit products send store IDs, discount codes and binary images', a
   useAuthStore.getState().setSession({ account: { account_username: 'tester' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
   const input = {
     eventId: 'store-0328', category: 'satuan', image: null, name: 'Test', price: '100000',
-    description: 'Test description', discount: '10', discountType: 'Persentase (%)',
+    description: 'Test description', discount: '10', discountType: 'Persentase (%)', useStock: true,
   }
   assert.equal(await saveProduct(input), 'Saved')
   assert.equal(sent.url, '/admin/product')
@@ -864,6 +1015,7 @@ test('add and edit products send store IDs, discount codes and binary images', a
   assert.deepEqual(Object.fromEntries(sent.data.entries()), {
     action: 'add_product', branch_id: 'store-0328', category: 'satuan', img: '', name: 'Test',
     price: '100000', description: 'Test description', discount: '10', discount_type: 'percent',
+    use_stock: 'true',
   })
   await saveProduct({ ...input, menuId: 'PE00048', discountType: 'Nominal' })
   assert.equal(sent.data.get('action'), 'edit_product')
@@ -878,14 +1030,91 @@ test('add and edit products send store IDs, discount codes and binary images', a
   assert.equal(await sent.data.get('img').text(), 'test-image-bytes')
   assert.equal(sent.data.get('discount_type'), 'none')
   assert.equal(sent.data.get('discount'), '0')
+  assert.equal(sent.data.has('stock_qty'), false)
+  await saveProduct({ ...input, stockQuantity: '0' })
+  assert.equal(sent.data.get('stock_qty'), '0')
+  await saveProduct({ ...input, menuId: 'PE00048', useStock: false, stockQuantity: '' })
+  assert.equal(sent.data.get('use_stock'), 'false')
+  assert.equal(sent.data.get('stock_qty'), '')
   const menu = { product_sku: '1', product_name: 'Test', status: 'active', product_price: 100, discount: 10 }
   assert.equal(mapProductRecord({ ...menu, discount_type: 'percent' }).discountType, 'Persentase (%)')
   assert.equal(mapProductRecord({ ...menu, discount_type: 'fixed' }).discountType, 'Nominal')
   assert.equal(mapProductRecord({ ...menu, discount_type: 'none' }).discountType, 'Tanpa diskon')
-  assert.ok(productSchema.safeParse({ store: 'store-0328', category: 'satuan', title: 'Test', price: '100000', photo: '', discount: '10', discountType: 'Persentase (%)', description: '' }).success)
+  assert.equal(mapProductRecord({ ...menu, stock_qty: null, stock_quantity: 0 }).useStock, false)
+  assert.equal(mapProductRecord({ ...menu, stock_qty: '0' }).useStock ?? true, true)
+  assert.equal(mapProductRecord({ ...menu, stock_qty: '12' }).stock, 12)
+  assert.equal(mapProductRecord({ ...menu, use_stock: false, stock_qty: 10 }).useStock, false)
+  assert.equal(mapProductRecord({ ...menu, use_stock: 'true', stock_qty: null }).useStock, true)
+  const form = { store: 'store-0328', category: 'satuan', title: 'Test', price: '100000', photo: '', discount: '10', discountType: 'Persentase (%)', description: '' }
+  assert.ok(productSchema.safeParse({ ...form, useStock: false, stock: '' }).success)
+  assert.ok(productSchema.safeParse({ ...form, useStock: true, stock: '0' }).success)
+  for (const stock of ['', '-1', '1.5', '9007199254740992']) {
+    assert.equal(productSchema.safeParse({ ...form, useStock: true, stock }).success, false)
+  }
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: { status: 'error', msg: 'Save denied' } })
   await assert.rejects(saveProduct(input), /Save denied/)
   useAuthStore.getState().clearSession()
+})
+
+test('copying a product sends the source SKU and the initial stock to copy_product', async () => {
+  const { copyProductToBranch, getProductCopyDestinations } = await import('../src/features/products/product-copy.ts')
+  const { mapProductRecord } = await import('../src/features/products/product-api.ts')
+  const record = {
+    status: 'active', product_sku: 'PE-01', store_id: 'STORE-01', branch_id: 'BC-001',
+    product_name: 'Kopi Susu', product_price: 18000, product_category: 'minuman', product_category_name: 'Minuman',
+    product_description: 'Kopi dengan susu', discount_type: 'percent', discount: 10, use_stock: true, stock_qty: 120,
+    product_img: 'data:image/png;base64,aW1hZ2U=',
+  }
+  const product = mapProductRecord(record)
+  const branches = ['all', 'BC-001', 'BC-002', 'BC-003', 'BC-004', 'BC-005'].map(id => ({ id, name: `Cabang ${id}` }))
+  const records = [
+    record,
+    { ...record, product_sku: 'PE-02', branch_id: 'BC-002', product_name: ' kopi  susu ', status: 'noactive' },
+    { ...record, product_sku: 'PE-03', branch_id: 'BC-003', product_category: 'makanan', product_category_name: 'Makanan' },
+    { ...record, product_sku: 'PE-04', branch_id: 'BC-004', product_category: 'Minuman', status: 'active' },
+  ]
+  const posted = []
+  let copyError = false
+  useAuthStore.getState().setSession({
+    account: { account_username: 'tester', store: { id: 'STORE-01', all_branches: true, branches } },
+    token: 'test-token-only', expiresAt: Date.now() + 60_000,
+  }, false)
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/admin/product')
+    if (config.method === 'get') {
+      return { config, status: 200, headers: {}, data: { status: 'success', data: records } }
+    }
+    assert.equal(config.method, 'post')
+    assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
+    const fields = Object.fromEntries(config.data.entries())
+    if (copyError) return { config, status: 200, headers: {}, data: { status: 'error', msg: 'Salinan ditolak.' } }
+    posted.push(fields)
+    records.push({ ...record, product_sku: `NEW-${posted.length}`, branch_id: fields.branch_id, stock_qty: Number(fields.stock_qty ?? 0) })
+    return { config, status: 200, headers: {}, data: { status: 'success' } }
+  }
+  try {
+    assert.deepEqual(getProductCopyDestinations(product, records.map(item => mapProductRecord(item)), branches).map(branch => branch.id), ['BC-003', 'BC-005'])
+    const input = { branchId: 'BC-005', useStock: true, stock: ' 7 ' }
+    await assert.rejects(copyProductToBranch(product, { ...input, branchId: 'OTHER' }), /Pilih cabang tujuan/)
+    await assert.rejects(copyProductToBranch(product, { ...input, branchId: 'BC-001' }), /Pilih cabang tujuan/)
+    await assert.rejects(copyProductToBranch(product, { ...input, stock: '-1' }), /stok awal/)
+    assert.equal(await copyProductToBranch(product, input), 'Cabang BC-005')
+    assert.deepEqual(posted[0], {
+      action: 'copy_product', product_sku: 'PE-01', branch_id: 'BC-005', use_stock: 'true', stock_qty: '7',
+    })
+    await assert.rejects(copyProductToBranch(product, input), /sudah tersedia/)
+    assert.equal(posted.length, 1)
+    const withoutStock = { branchId: 'BC-003', useStock: false, stock: '' }
+    copyError = true
+    await assert.rejects(copyProductToBranch(product, withoutStock), /Salinan ditolak/)
+    copyError = false
+    assert.equal(await copyProductToBranch(product, withoutStock), 'Cabang BC-003')
+    assert.deepEqual(posted[1], {
+      action: 'copy_product', product_sku: 'PE-01', branch_id: 'BC-003', use_stock: 'false',
+    })
+  } finally {
+    useAuthStore.getState().clearSession()
+  }
 })
 
 test('store API unwraps active stores with their branches and days', async () => {
@@ -1070,6 +1299,94 @@ test('empty list responses render as no data while real API errors are preserved
   await assert.rejects(fetchStoreSettings(), /Akses ditolak/)
 })
 
+test('all-branch stock, shift history and sales omit the branch ID', async () => {
+  const { fetchProductStock } = await import('../src/features/products/stock-api.ts')
+  const { fetchCashSessions } = await import('../src/features/cash-session/cash-session-api.ts')
+  const { transactionListParams } = await import('../src/features/sales/sales-api.ts')
+  const stock = [{ branch_id: 'BC-001', branch_name: 'Loka 1' }, { branch_id: 'BC-002' }]
+  const signal = new AbortController().signal
+  let params
+  api.defaults.adapter = async (config) => {
+    params = config.params
+    const data = config.url === '/admin/stock' ? stock : { status: 'success', data: { sessions: [] } }
+    return { config, status: 200, headers: {}, data }
+  }
+  assert.deepEqual(await fetchProductStock(signal, 'all'), stock)
+  assert.deepEqual(params, { action: 'list_stock' })
+  assert.deepEqual(await fetchProductStock(signal, 'BC-002'), [stock[1]])
+  assert.deepEqual(params, { action: 'list_stock', branch_id: 'BC-002' })
+  await fetchCashSessions({ branch_id: 'all', status: 'open' }, signal)
+  assert.deepEqual(params, { action: 'list_session', status: 'open' })
+  await fetchCashSessions({ branch_id: 'BC-002', status: 'open' }, signal)
+  assert.deepEqual(params, { action: 'list_session', status: 'open', branch_id: 'BC-002' })
+  assert.deepEqual(transactionListParams({ branchId: 'all' }, ''), { action: 'list_trx' })
+})
+
+test('reports use the authenticated download endpoint and send only supported filters', async () => {
+  const { fetchSalesHistoryTable, fetchSalesHistoryExport, fetchCashSessionExport } = await import('../src/features/reports/report-api.ts')
+  const html = '<!doctype html><style>table { border-collapse: collapse }</style><table><tr><th>Shift</th><th>Sesi Kas</th></tr></table>'
+  const sales = [{ 'ID Trx': 'TRX000001', Shift: 'pagi', 'Sesi Kas': 'SES-1', Subtotal: '18000' }]
+  const sessions = [{ 'ID Sesi': 'SES-1', Kasir: 'Kasir Demo', Selisih: -5000, 'Nominal Serah Terima': null }]
+  let payload = html
+  const requests = []
+  useAuthStore.getState().setSession({ account: { account_username: 'kasir' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
+  try {
+    api.defaults.adapter = async (config) => {
+      requests.push(config)
+      assert.equal(config.url, '/download.php')
+      assert.equal(config.method, 'get')
+      assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
+      return { config, status: 200, headers: {}, data: payload }
+    }
+    const signal = new AbortController().signal
+    assert.equal(await fetchSalesHistoryTable(signal), html)
+    assert.deepEqual(requests.at(-1).params, { action: 'table_history' })
+    assert.equal(requests.at(-1).headers.get('Accept'), 'text/html')
+    assert.equal(requests.at(-1).responseType, 'text')
+    assert.equal(requests.at(-1).signal, signal)
+
+    payload = { status: 'success', data: sales }
+    assert.deepEqual(await fetchSalesHistoryExport(), sales)
+    assert.deepEqual(requests.at(-1).params, { action: 'export_history' })
+
+    payload = { status: 'success', data: sessions }
+    assert.deepEqual(await fetchCashSessionExport({ startDate: '2026-11-19', endDate: '2026-11-25' }), sessions)
+    assert.deepEqual(requests.at(-1).params, { action: 'export_session', startDate: '2026-11-19', endDate: '2026-11-25' })
+    await fetchCashSessionExport({ endDate: '2026-11-25' })
+    assert.deepEqual(requests.at(-1).params, { action: 'export_session', endDate: '2026-11-25' })
+    await fetchCashSessionExport()
+    assert.deepEqual(requests.at(-1).params, { action: 'export_session' })
+
+    payload = { status: 'error', msg: 'No Data yet', data: [] }
+    assert.deepEqual(await fetchSalesHistoryExport(), [])
+    payload = { status: 'error', msg: 'Akses ditolak', data: [] }
+    await assert.rejects(fetchSalesHistoryExport(), /Akses ditolak/)
+    await assert.rejects(fetchCashSessionExport(), /Akses ditolak/)
+    payload = JSON.stringify(payload)
+    await assert.rejects(fetchSalesHistoryTable(), /Laporan penjualan tidak tersedia/)
+  } finally {
+    useAuthStore.getState().clearSession()
+  }
+})
+
+test('Excel reports preserve columns and notes and store amounts as numbers', async () => {
+  const { createReportWorkbook } = await import('../src/features/reports/report-excel.ts')
+  const { unzipSync, strFromU8 } = createRequire(import.meta.resolve('write-excel-file/universal'))('fflate')
+  const workbook = await createReportWorkbook([
+    { 'ID Sesi': 'SES-1', Alasan: 'Uang kurang, kasir bilang "sudah hitung".\nDiperiksa ulang.', Selisih: -5000 },
+    { 'ID Sesi': 'SES-2', Alasan: '=1+1', Selisih: '-1500', 'Nominal Serah Terima': null },
+  ])
+  const files = unzipSync(new Uint8Array(await workbook.arrayBuffer()))
+  const worksheet = strFromU8(files['xl/worksheets/sheet1.xml'])
+  const strings = strFromU8(files['xl/sharedStrings.xml'])
+  assert.match(strings, /ID Sesi.*Alasan.*Selisih.*Nominal Serah Terima/s)
+  assert.match(strings, /Uang kurang, kasir bilang.*Diperiksa ulang/s)
+  assert.match(strings, />=1\+1</)
+  assert.doesNotMatch(worksheet, /<f[>\s]/)
+  assert.match(worksheet, /<v>-5000<\/v>/)
+  assert.match(worksheet, /<v>-1500<\/v>/)
+})
+
 test('transaction lists unwrap server aggregates and sales assignments from the success response', async () => {
   const { mapTransactionList } = await import('../src/features/sales/sales-api.ts')
   const mapped = mapTransactionList({
@@ -1123,10 +1440,12 @@ test('transaction lists unwrap server aggregates and sales assignments from the 
 
 test('transaction details fetch selected IDs and use historical images, line totals and QRIS proof', async () => {
   const { fetchTransactionDetail, mapTransactionDetail } = await import('../src/features/sales/sales-api.ts')
+  const { percentageOf } = await import('../src/features/orders/payment-details.ts')
   const response = {
     trx_id: 'TRXWHSMEY', trx_kasir: 'Muhammad Idris Iswardana', trx_location: 'Jak Japan Matsuri 2026',
     trx_sales: { id: 1, name: 'Owner Bazar Kemang1' }, trx_note: 'Tanpa es',
-    trx_date: '01/11/2026 20:22', trx_status: 'completed', trx_payment: 'qris', trx_total: '31500',
+    trx_date: '01/11/2026 20:22', trx_status: 'completed', trx_payment: 'qris', trx_total: '31720',
+    trx_subtotal: '31500', trx_payment_fee: '0.7%',
     trx_nominal: '0', trx_change: '0', trx_total_items: 1,
     trx_products: [{ menu_id: 'PE00001', name: 'DHC Vitamin C ', img: '../../data-assets/upload/menu/PE00001/PE00001.png?v=19?v=11',
       price: '35000', qty: '1', price_total: '31500' }],
@@ -1142,7 +1461,9 @@ test('transaction details fetch selected IDs and use historical images, line tot
   assert.deepEqual(sent.params, { action: 'detail_trx', trx_id: 'TRXWHSMEY' })
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-token-only')
   assert.equal(detail.status, 'complete')
-  assert.equal(detail.total, 31500)
+  assert.equal(detail.total, 31720)
+  assert.equal(detail.paymentFee, 0.7)
+  assert.equal(percentageOf(detail.subtotal, detail.paymentFee), 220)
   assert.deepEqual(detail.salesperson, { id: '1', name: 'Owner Bazar Kemang1' })
   assert.equal(detail.note, 'Tanpa es')
   assert.equal(detail.items[0].productId, 'PE00001')
@@ -1219,7 +1540,7 @@ test('settling a pending transaction posts pay_trx for the existing ID without r
       return { config, headers: {}, status: 200, data: { status: 'success', data: [
         { payment_code: 'cash', payment_method: 'Tunai', payment_type: 'cash', is_active: true, fee_active: false, fee_found: false },
         { payment_code: 'qris_cabang', payment_method: 'QRIS Cabang', payment_type: 'qris', is_active: true,
-          fee_code: 'qris', fee: 0.7, fee_type: 'percent', fee_active: true, fee_found: true },
+          fee_code: 'qris', fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', fee_active: true, fee_found: true },
       ] } }
     }
     return { config, headers: {}, status: 200, data: {
@@ -1262,11 +1583,27 @@ test('settling a pending transaction posts pay_trx for the existing ID without r
     action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'qris_cabang', payment_fee: '0.7', payment_total_price: '15605',
   })
 
+  const storeQris = { ...qris, feeBearer: 'store' }
+  const savedPending = { ...sale, status: 'pending', total: 15605, paymentFee: 0.7 }
+  const absorbed = pendingPaymentDetails(order, savedPending, storeQris, storeQris)
+  assert.equal(absorbed.totals.methodFeeAmount, 0)
+  assert.equal(absorbed.totals.total, 15500)
+  assert.deepEqual(absorbed.updates, { paymentFee: 0, total: 15500 })
+  const settled = pendingPaymentDetails(order, { ...savedPending, status: 'complete' }, storeQris, storeQris)
+  assert.equal(settled.totals.total, 15605)
+  assert.deepEqual(settled.updates, {})
+
   const withFixedFee = { ...sale, additionalPrices: [...sale.additionalPrices, { title: 'Biaya pembayaran', value: 1000 }] }
   const fixedMethod = { ...recorded, fee: { type: 'fixed', amount: 1000 } }
   assert.deepEqual(pendingPaymentDetails(order, withFixedFee, qris, fixedMethod).updates.additionalPrices, [
     { name: 'Kemasan', amount: 500 },
   ])
+  const storeFixed = { ...storeQris, fee: { type: 'flat', amount: 1200 } }
+  const savedFixed = { ...withFixedFee, status: 'pending', total: 16500 }
+  const absorbedFixed = pendingPaymentDetails(order, savedFixed, storeFixed, storeFixed)
+  assert.equal(absorbedFixed.totals.total, 15500)
+  assert.deepEqual(absorbedFixed.fees, sale.additionalPrices)
+  assert.deepEqual(absorbedFixed.updates, { total: 15500, additionalPrices: [{ name: 'Kemasan', amount: 500 }] })
   const adjustments = pendingPaymentDetails(order, sale, recorded, recorded, {
     additionalPrices: [{ title: 'Kemasan', value: 100 }, { title: 'Layanan', value: 200 }],
     discounts: [{ title: 'Promo', type: 'percent', value: 5 }, { title: 'Voucher', type: 'fixed', value: 200 }],
@@ -1312,7 +1649,7 @@ test('sales can edit payment adjustments and cash without transmitting products'
     'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '0',
     'discounts[0][title]': 'Promo', 'discounts[0][value]': '0', 'discounts[0][type]': 'fixed',
   })
-  await editSalePayment(sale, { method: { code: 'qris_edc', kind: 'noncash', fee: { type: 'percent', amount: 1 } }, recordedMethod: cash })
+  await editSalePayment(sale, { method: { code: 'qris_edc', kind: 'noncash', fee: { type: 'percent', amount: 1 }, feeBearer: 'customer' }, recordedMethod: cash })
   assert.deepEqual(Object.fromEntries(requests[1].data), {
     action: 'edit_trx', trx_id: 'TRX-1', payment_methods: 'qris_edc', payment_total_price: '14650',
     payment_fee: '1', payment_cash_nominal: '0', payment_cash_change: '0',
@@ -1320,6 +1657,100 @@ test('sales can edit payment adjustments and cash without transmitting products'
   await assert.rejects(editSalePayment(sale, { ...changes, paid: 10000 }), /Nominal tunai/)
   await assert.rejects(editSalePayment({ ...sale, status: 'delete' }, changes), /tidak dapat diedit/)
   assert.equal(requests.length, 2)
+})
+
+test('refunds use edit_trx and return the cash amount and net revenue confirmed by the server', async () => {
+  const { refundSale } = await import('../src/features/orders/payment-details.ts')
+  const sale = { id: 'TRX-1', status: 'complete', total: 19980, paid: 20000 }
+  const partialSale = { ...sale, id: 'TRX-2' }
+  const full = { isPartial: false, reason: '  Barang kosong  ' }
+  const partial = { isPartial: true, nominal: 7250.5, reason: '  Harga dikoreksi\nPelanggan setuju  ' }
+  const fullResponse = { status: 'success', trx_id: sale.id, trx_status: 'refund_full',
+    refund: { amount: 19980, method: 'cash', reason: 'Barang kosong' }, omzet: 0, restored: 2 }
+  const partialResponse = { status: 'success', trx_id: partialSale.id, trx_status: 'refund_partial',
+    refund: { amount: 7250.5, method: 'cash', reason: 'Harga dikoreksi\nPelanggan setuju' }, omzet: 12729.5 }
+  const requests = []
+  useAuthStore.getState().setSession({ account: { account_username: 'tester' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
+  try {
+    api.defaults.adapter = async (config) => {
+      assert.equal(config.url, '/transaction/trx')
+      assert.equal(config.method, 'post')
+      assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
+      requests.push(Object.fromEntries(config.data))
+      const data = config.data.get('trx_id') === sale.id ? fullResponse : partialResponse
+      return { config, status: 200, headers: {}, data }
+    }
+    assert.deepEqual(await refundSale(sale, full), {
+      id: sale.id, status: 'refund_full', refund: { ...fullResponse.refund, restored: 2 }, netRevenue: 0,
+    })
+    assert.deepEqual(await refundSale(partialSale, partial), {
+      id: partialSale.id, status: 'refund_partial', refund: { ...partialResponse.refund, restored: undefined }, netRevenue: 12729.5,
+    })
+    for (const status of ['pending', 'delete', 'refund_full', 'refund_partial']) {
+      await assert.rejects(refundSale({ ...sale, status }, full), /transaksi lunas/)
+    }
+    for (const option of [full, partial]) {
+      await assert.rejects(refundSale(sale, { ...option, reason: ' \n ' }), /Alasan refund wajib/)
+    }
+    for (const nominal of [0, -10, NaN, Infinity, sale.total, sale.total + 1]) {
+      await assert.rejects(refundSale(sale, { ...partial, nominal }), /Nominal refund parsial/)
+    }
+    assert.deepEqual(requests, [
+      { action: 'edit_trx', trx_id: sale.id, refund_status: 'refund_full', refund_reason: 'Barang kosong' },
+      { action: 'edit_trx', trx_id: partialSale.id, refund_status: 'refund_partial', refund_amount: '7250.5', refund_reason: 'Harga dikoreksi\nPelanggan setuju' },
+    ])
+
+    let release
+    const pending = new Promise((resolve) => { release = resolve })
+    api.defaults.adapter = async (config) => {
+      await pending
+      return { config, status: 200, headers: {}, data: fullResponse }
+    }
+    const first = refundSale(sale, full)
+    await assert.rejects(refundSale(sale, full), /sedang diproses/)
+    release()
+    await first
+
+    api.defaults.adapter = async (config) => {
+      throw new AxiosError('Conflict', 'ERR_BAD_REQUEST', config, undefined, {
+        config, headers: {}, status: 409, data: { status: 'error', msg: 'Status sekarang: refund_full' },
+      })
+    }
+    await assert.rejects(refundSale(sale, full), /Status sekarang: refund_full/)
+
+    api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: {
+      status: 'success', trx_id: sale.id, trx_status: 'completed',
+    } })
+    await assert.rejects(refundSale(sale, full), /belum mengonfirmasi refund/)
+  } finally {
+    useAuthStore.getState().clearSession()
+  }
+})
+
+test('sales keep the original receipt total and use the reported refund revenue', async () => {
+  const { mapTransactionDetail, mapTransactionList } = await import('../src/features/sales/sales-api.ts')
+  const sale = { trx_kasir: 'Kasir', trx_location: 'Toko', trx_date: '23/11/2026 11:41',
+    trx_total: '19980', trx_payment: 'qris', trx_total_items: 2, trx_change: '0' }
+  const partial = { ...sale, trx_id: 'TRXEC6SZD', trx_total: '35000', trx_total_items: 1,
+    trx_status: 'refund_partial', trx_net_total: 30000,
+    trx_refund: { status: 'refund_partial', is_refund: true, amount: 5000, method: 'cash', reason: 'test',
+      refunded_at: '2026-11-25 18:47:32', refunded_by: '13' } }
+  const { sales, summary } = mapTransactionList({ summary: [], data_trx: [
+    partial,
+    { ...sale, trx_id: 'TRX-2', trx_status: 'refund_full', omzet: 0, restored: 2,
+      refund_amount: '19980', refund_method: 'cash', refund_note: 'Barang kosong' },
+  ] })
+  assert.deepEqual(sales.map(({ status, total, netRevenue }) => ({ status, total, netRevenue })), [
+    { status: 'refund_partial', total: 35000, netRevenue: 30000 },
+    { status: 'refund_full', total: 19980, netRevenue: 0 },
+  ])
+  assert.deepEqual(sales[0].refund, { amount: 5000, method: 'cash', reason: 'test', restored: undefined })
+  const detail = mapTransactionDetail({ ...partial, trx_products: [], trx_nominal: '35000' })
+  assert.deepEqual(detail.refund, sales[0].refund)
+  assert.equal(detail.netRevenue, 30000)
+  assert.deepEqual(sales[1].refund, { amount: 19980, method: 'cash', reason: 'Barang kosong', restored: 2 })
+  assert.equal(summary.total, 30000)
+  assert.equal(summary.productsSold, 1)
 })
 
 test('editing pending products recalculates the total and preserves stored payment fields', async () => {
@@ -1342,6 +1773,7 @@ test('editing pending products recalculates the total and preserves stored payme
   const existing = { ...original.items[0].product, price: 12000, stock: 1 }
   const product = { ...existing, id: 'P2', title: 'Teh', price: 6000, discountType: 'Tanpa diskon' }
   assert.equal(changePendingQuantity(original, original, 'P1', 4, existing), original)
+  assert.equal(changePendingQuantity(original, original, 'P1', 4, { ...existing, useStock: false, stock: 0 }).items[0].quantity, 4)
   const adjusted = changePendingQuantity(original, original, 'P1', 3, existing)
   const order = changePendingQuantity(adjusted, original, 'P2', 1, product)
   assert.equal(order.items[0].unitPrice, 9000)
@@ -1546,6 +1978,10 @@ test('queued orders remain independent, editable and stock-limited across custom
   store().initialize('cashier-B')
   assert.equal(store().owner, 'cashier-B')
   assert.equal(store().orders.length, 0)
+  const untracked = { ...product, useStock: false, stock: 0 }
+  assert.equal(store().addItem(untracked, 6), null)
+  store().createOrder()
+  assert.equal(store().addItem(untracked, 9), null)
   useAuthStore.getState().setSession({ account: { account_id: 'cashier-B', account_username: 'tester' }, token: 'test-token-only', expiresAt: Date.now() + 60_000 }, false)
   useAuthStore.getState().clearSession()
   assert.equal(store().orders.length, 0)

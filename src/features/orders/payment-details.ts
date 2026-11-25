@@ -1,5 +1,6 @@
 import { orderTotal, pendingOrderDraft, type OrderDraft } from "./order-store";
 import { isAxiosError } from "axios";
+import { z } from "zod";
 import { request } from "@/lib/api";
 import {
   getCashierBranches,
@@ -19,8 +20,21 @@ export type Discount = {
   value: number;
 };
 
-function percentageOf(amount: number, percentage: number) {
+type PaymentMethodSelection = {
+  code: string;
+  title: string;
+  kind: "cash" | "qris" | "noncash";
+  fee?: { amount: number; type: string };
+  feeBearer?: string | null;
+};
+
+export function percentageOf(amount: number, percentage: number) {
   return Math.round(amount * (percentage / 100));
+}
+
+export function customerPaymentFee(method?: PaymentMethodSelection) {
+  const fee = method?.fee;
+  return method?.feeBearer === "customer" && fee && fee.amount > 0 ? fee : undefined;
 }
 
 function calculatePaymentTotals(
@@ -52,9 +66,10 @@ export function paymentTotals(
   order: OrderDraft,
   additionalPrices: SaleFee[],
   discounts: SaleDiscount[],
-  methodFeeConfig?: { amount: number; type: string },
+  method?: PaymentMethodSelection,
 ) {
   const subtotal = orderTotal(order);
+  const methodFeeConfig = customerPaymentFee(method);
   const methodFeeAmount =
     methodFeeConfig?.type === "percent"
       ? percentageOf(subtotal, methodFeeConfig.amount)
@@ -69,12 +84,7 @@ export function paymentTotals(
 
 export type PaymentReceipt = ReturnType<typeof paymentTotals> & {
   order: OrderDraft;
-  method: {
-    code: string;
-    title: string;
-    kind: "cash" | "qris" | "noncash";
-    fee?: { amount: number; type: string };
-  };
+  method: PaymentMethodSelection;
   additionalPrices: SaleFee[];
   discounts: SaleDiscount[];
   paid: number;
@@ -114,7 +124,8 @@ export type SalePaymentChanges = PaymentAdjustments & {
 function recordedFixedFee(sale: Sale, method?: PaymentReceipt["method"]) {
   const last = sale.additionalPrices?.at(-1);
   const fee = method?.fee;
-  if (!sale.paymentFee && fee && fee.type !== "percent" && last?.title === paymentFeeTitle && last.value === fee.amount) return last;
+  if (!sale.paymentFee && fee && fee.type !== "percent" && last?.title === paymentFeeTitle &&
+    (last.value === fee.amount || sale.status === "pending")) return last;
 }
 
 export function editableSaleFees(sale: Sale, method?: PaymentReceipt["method"]) {
@@ -132,17 +143,22 @@ export function pendingPaymentDetails(
   const subtotal = sale.subtotal ?? orderTotal(order);
   const taxAmount = percentageOf(subtotal, sale.tax ?? 0);
   const methodChanged = !!method && method.code !== recordedMethod?.code;
+  const useCurrentFee = methodChanged || (sale.status === "pending" && !!method);
+  const currentFee = customerPaymentFee(method);
+  const savedPaymentFee = sale.paymentFee ?? 0;
   const savedFixedFee = recordedFixedFee(sale, recordedMethod);
-  const paymentFee = methodChanged
-    ? (method.fee?.type === "percent" ? method.fee.amount : 0)
-    : (sale.paymentFee ?? 0);
+  const paymentFee = useCurrentFee
+    ? (currentFee?.type === "percent" ? currentFee.amount : 0)
+    : savedPaymentFee;
   let fixedFee = savedFixedFee?.value ?? 0;
-  if (methodChanged) fixedFee = method.fee && method.fee.type !== "percent" ? method.fee.amount : 0;
+  if (useCurrentFee) fixedFee = currentFee && currentFee.type !== "percent" ? currentFee.amount : 0;
+  const paymentFeeChanged = paymentFee !== savedPaymentFee;
+  const fixedFeeChanged = fixedFee !== (savedFixedFee?.value ?? 0);
   const extraFees = adjustments.additionalPrices ?? editableSaleFees(sale, recordedMethod);
   const fees = fixedFee ? [...extraFees, { title: paymentFeeTitle, value: fixedFee }] : extraFees;
   const discounts = adjustments.discounts ?? (sale.discounts ?? []).filter(({ value }) => value !== 0);
   let replacementFees: AdditionalFee[] | undefined;
-  if (adjustments.additionalPrices || (methodChanged && (savedFixedFee || fixedFee))) {
+  if (adjustments.additionalPrices || fixedFeeChanged) {
     replacementFees = fees.map(({ title, value }) => ({ name: title, amount: value }));
     const lastFee = sale.additionalPrices?.at(-1);
     // An indexed multipart array needs an entry to replace the last stored adjustment.
@@ -160,9 +176,9 @@ export function pendingPaymentDetails(
     percentageOf(subtotal, paymentFee),
     sale.tax,
   );
-  const totalChanged = methodChanged || !!adjustments.additionalPrices || !!adjustments.discounts;
+  const totalChanged = methodChanged || paymentFeeChanged || fixedFeeChanged || !!adjustments.additionalPrices || !!adjustments.discounts;
   const updates: PendingPayment = {
-    ...(methodChanged && { paymentFee }),
+    ...((methodChanged || paymentFeeChanged) && { paymentFee }),
     ...(totalChanged && { total: totals.total }),
     ...(replacementFees && { additionalPrices: replacementFees }),
     ...(replacementDiscounts && { discounts: replacementDiscounts }),
@@ -211,7 +227,7 @@ export async function resolvePendingTransaction(
 ) {
   const data = new FormData();
   if (payment) appendPendingPayment(data, payment);
-  return mutatePendingTransaction(
+  return mutateTransaction(
     id,
     payment ? "pay_trx" : "cancel_trx",
     data,
@@ -245,7 +261,7 @@ export async function editPendingOrder(order: OrderDraft, transaction: Sale, met
     discounts: transaction.discounts,
   });
   appendProducts(data, order.items);
-  return mutatePendingTransaction(order.id, "edit_trx", data, {
+  return mutateTransaction(order.id, "edit_trx", data, {
     editedOrder: order,
   });
 }
@@ -275,7 +291,52 @@ export async function editSalePayment(sale: Sale, changes: SalePaymentChanges, b
     payment.change = 0;
   }
   appendPendingPayment(data, payment);
-  return mutatePendingTransaction(sale.id, "edit_trx", data, { branchId });
+  return mutateTransaction(sale.id, "edit_trx", data, { branchId });
+}
+
+export type TransactionRefund = { reason: string } & (
+  { isPartial: false } | { isPartial: true; nominal: number }
+);
+
+const refundResponse = z.object({
+  trx_id: z.string(),
+  trx_status: z.enum(["refund_partial", "refund_full"]),
+  refund: z.object({
+    amount: z.number().positive(),
+    method: z.literal("cash"),
+    reason: z.string().trim().min(1),
+  }),
+  omzet: z.number().nonnegative(),
+  restored: z.number().int().nonnegative().optional(),
+});
+
+export function isValidPartialRefund(nominal: number, total: number) {
+  return Number.isFinite(nominal) && Number.isFinite(total) && nominal > 0 && nominal < total;
+}
+
+export async function refundSale(sale: Sale, refund: TransactionRefund, branchId?: string) {
+  if (sale.status !== "complete") throw new Error("Refund hanya tersedia untuk transaksi lunas.");
+  if (!Number.isFinite(sale.total) || sale.total <= 0) throw new Error("Total pembayaran tidak valid.");
+  const reason = refund.reason?.trim();
+  if (!reason) throw new Error("Alasan refund wajib diisi.");
+  if (refund.isPartial && !isValidPartialRefund(refund.nominal, sale.total)) {
+    throw new Error("Nominal refund parsial harus lebih dari nol dan di bawah total pembayaran.");
+  }
+  const status = refund.isPartial ? "refund_partial" : "refund_full";
+  const data = new FormData();
+  data.set("refund_status", status);
+  data.set("refund_reason", reason);
+  if (refund.isPartial) data.set("refund_amount", String(refund.nominal));
+  const response = refundResponse.safeParse(await mutateTransaction(sale.id, "edit_trx", data, { branchId }));
+  if (!response.success || response.data.trx_id !== sale.id || response.data.trx_status !== status) {
+    throw new Error("Server belum mengonfirmasi refund. Periksa detail transaksi sebelum mencoba lagi.");
+  }
+  return {
+    id: response.data.trx_id,
+    status: response.data.trx_status,
+    refund: { ...response.data.refund, restored: response.data.restored },
+    netRevenue: response.data.omzet,
+  };
 }
 
 function productSnapshot(order: OrderDraft) {
@@ -286,7 +347,7 @@ function productSnapshot(order: OrderDraft) {
   );
 }
 
-async function mutatePendingTransaction(
+async function mutateTransaction(
   id: string,
   action: "pay_trx" | "cancel_trx" | "edit_trx",
   data: FormData,
@@ -296,6 +357,7 @@ async function mutatePendingTransaction(
   if (pendingOrders.has(id)) throw new Error("Pesanan ini sedang diproses.");
   data.set("action", action);
   data.set("trx_id", id);
+  const isRefund = data.has("refund_status");
   pendingOrders.add(id);
   try {
     if (branchId && (await fetchTransactionDetail(id)).branchId !== branchId) {
@@ -311,7 +373,7 @@ async function mutatePendingTransaction(
         formatShiftMessage(
           response?.msg ||
             response?.message ||
-            "Server belum mengonfirmasi perubahan pesanan.",
+            (isRefund ? "Server belum mengonfirmasi refund." : "Server belum mengonfirmasi perubahan pesanan."),
         ),
       );
     if (
@@ -329,11 +391,14 @@ async function mutatePendingTransaction(
         );
       }
     }
+    return response;
   } catch (error) {
     if (isAxiosError<PaymentResponse>(error)) {
       if (!error.response || error.response.status >= 500) {
         throw new Error(
-          "Status pesanan belum diketahui. Periksa antrean sebelum mencoba lagi.",
+          isRefund
+            ? "Status refund belum diketahui. Periksa detail transaksi sebelum mencoba lagi."
+            : "Status pesanan belum diketahui. Periksa antrean sebelum mencoba lagi.",
           { cause: error },
         );
       }
@@ -341,7 +406,7 @@ async function mutatePendingTransaction(
         formatShiftMessage(
           error.response.data?.msg ||
             error.response.data?.message ||
-            "Server menolak perubahan pesanan.",
+            (isRefund ? "Server menolak refund." : "Server menolak perubahan pesanan."),
         ),
         { cause: error },
       );
@@ -467,9 +532,10 @@ export async function savePayment(
   }
   if (payment.proof) data.set("payment_upload_file", payment.proof);
   const fees = payment.additionalPrices.map(({ title, value }) => ({ name: title, amount: value }));
-  if (payment.method.fee?.type === "percent") {
-    data.set("payment_fee", String(payment.method.fee.amount));
-  } else if (payment.methodFeeAmount > 0) {
+  const methodFee = customerPaymentFee(payment.method);
+  if (methodFee?.type === "percent") {
+    data.set("payment_fee", String(methodFee.amount));
+  } else if (methodFee && payment.methodFeeAmount > 0) {
     fees.push({ name: paymentFeeTitle, amount: payment.methodFeeAmount });
   }
   const discounts = payment.discounts.map((discount, index) =>

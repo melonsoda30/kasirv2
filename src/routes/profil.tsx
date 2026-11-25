@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "cn";
 import { PageLayout } from "../components/page-layout";
 import {
@@ -33,6 +33,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -65,12 +66,15 @@ function ProfileAction({
   icon: Icon,
   label,
   status,
-}: ({ to: "/sesi-kas"; onClick?: never } | { to?: never; onClick: () => void }) & {
+}: (
+  { to: "/sesi-kas"; onClick?: never } | { to?: never; onClick: () => void }
+) & {
   icon: LucideIcon;
   label: string;
   status?: ReactNode;
 }) {
-  const className = "flex w-full items-center gap-3 border-t bg-background px-4 py-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+  const className =
+    "flex w-full items-center gap-3 border-t bg-background px-4 py-3 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
   const content = (
     <>
       <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -84,9 +88,17 @@ function ProfileAction({
     </>
   );
   if (onClick) {
-    return <button type="button" className={className} onClick={onClick}>{content}</button>;
+    return (
+      <button type="button" className={className} onClick={onClick}>
+        {content}
+      </button>
+    );
   }
-  return <Link to={to} className={className}>{content}</Link>;
+  return (
+    <Link to={to} className={className}>
+      {content}
+    </Link>
+  );
 }
 
 function ProfilePage() {
@@ -99,8 +111,8 @@ function ProfilePage() {
   const cashSession = useCashSession(isCashier || isAdmin);
   const usesShift = cashSession.data?.use_session === true;
   const shiftActive = cashSession.data?.session?.status === "open";
-  const visibleAccountMenus = accountMenus.filter(({ to }) =>
-    !isCashier || to !== "/users",
+  const visibleAccountMenus = accountMenus.filter(
+    ({ to }) => !isCashier || to !== "/users",
   );
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -130,15 +142,28 @@ function ProfilePage() {
   }
   return (
     <PageLayout title="Profil" wide={!isCashier}>
-      <div className={cn("grid items-start gap-4", !isCashier && "md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]")}>
+      <div
+        className={cn(
+          "grid items-start gap-4",
+          !isCashier && "md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]",
+        )}
+      >
         <section
           aria-label="Profil pengguna"
           className="bento-surface col-span-full overflow-hidden"
         >
           <div className="flex items-center gap-3 p-4 sm:p-5">
             <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-              <SkeletonImage src={image} alt="Foto profil" className="size-full"
-                fallback={<UserRound className="size-7 text-muted-foreground" aria-label="Foto profil belum tersedia" />}
+              <SkeletonImage
+                src={image}
+                alt="Foto profil"
+                className="size-full"
+                fallback={
+                  <UserRound
+                    className="size-7 text-muted-foreground"
+                    aria-label="Foto profil belum tersedia"
+                  />
+                }
               />
             </div>
             <div className="min-w-0 flex-1">
@@ -176,11 +201,20 @@ function ProfilePage() {
               to="/sesi-kas"
               icon={Clock}
               label="Shift"
-              status={shiftActive ? <StatusBadge tone="ready">Aktif</StatusBadge> : "Belum dibuka"}
+              status={
+                shiftActive ? (
+                  <StatusBadge tone="ready">Aktif</StatusBadge>
+                ) : (
+                  "Belum dibuka"
+                )
+              }
             />
           )}
         </section>
-        <section aria-labelledby="profile-account-heading" className="bento-surface overflow-hidden">
+        <section
+          aria-labelledby="profile-account-heading"
+          className="bento-surface overflow-hidden"
+        >
           <h2
             id="profile-account-heading"
             className="border-b px-4 py-3 text-sm font-semibold"
@@ -203,7 +237,10 @@ function ProfilePage() {
           </ul>
         </section>
         {!isCashier && (
-          <section aria-labelledby="profile-settings-heading" className="bento-surface overflow-hidden md:row-span-2">
+          <section
+            aria-labelledby="profile-settings-heading"
+            className="bento-surface overflow-hidden md:row-span-2"
+          >
             <h2
               id="profile-settings-heading"
               className="border-b px-4 py-3 text-sm font-semibold"
@@ -221,22 +258,26 @@ function ProfilePage() {
                   },
                   { label: "PPN", icon: Percent, to: "/settings/ppn" },
                   { label: "Shift", icon: Clock, to: "/settings/shift" },
-                  { label: "Riwayat shift", icon: RotateCcwClock, to: "/sesi-kas" },
+                  {
+                    label: "Riwayat shift",
+                    icon: RotateCcwClock,
+                    to: "/sesi-kas",
+                  },
                 ] as const
-              ).filter(
-                ({ to }) => to !== "/sesi-kas" || usesShift,
-              ).map(({ label, icon: Icon, to }) => (
-                <li key={to}>
-                  <Link to={to} className={menuRowClass}>
-                    <Icon className="size-4 shrink-0" aria-hidden="true" />
-                    <span className="flex-1 font-medium">{label}</span>
-                    <ChevronRight
-                      className="size-4 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  </Link>
-                </li>
-              ))}
+              )
+                .filter(({ to }) => to !== "/sesi-kas" || usesShift)
+                .map(({ label, icon: Icon, to }) => (
+                  <li key={to}>
+                    <Link to={to} className={menuRowClass}>
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span className="flex-1 font-medium">{label}</span>
+                      <ChevronRight
+                        className="size-4 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                    </Link>
+                  </li>
+                ))}
             </ul>
           </section>
         )}
@@ -261,23 +302,38 @@ function ProfilePage() {
             <DrawerTitle>Pilih cabang kasir</DrawerTitle>
           </DrawerHeader>
           <DrawerBody className="space-y-2">
-            <label htmlFor={branchInputId} className="font-medium">Cabang</label>
+            <label htmlFor={branchInputId} className="font-medium">
+              Cabang
+            </label>
             <SelectCombobox
               id={branchInputId}
               placeholder="Pilih cabang"
               disabled={!branches.length}
-              options={branches.map(({ id, name }) => ({ value: id, label: name }))}
+              options={branches.map(({ id, name }) => ({
+                value: id,
+                label: name,
+              }))}
               value={branchId}
               onChange={setBranchId}
             />
-            {!branches.length && <p className="text-muted-foreground">Belum ada cabang yang tersedia.</p>}
+            {!branches.length && (
+              <p className="text-muted-foreground">
+                Belum ada cabang yang tersedia.
+              </p>
+            )}
           </DrawerBody>
           <DrawerFooter>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="modal-actions">
               <DrawerClose asChild>
-                <Button type="button" variant="outline">Batal</Button>
+                <Button type="button" variant="outline">
+                  Batal
+                </Button>
               </DrawerClose>
-              <Button type="button" disabled={!branches.some(({ id }) => id === branchId)} onClick={openCashier}>
+              <Button
+                type="button"
+                disabled={!branches.some(({ id }) => id === branchId)}
+                onClick={openCashier}
+              >
                 Buka Kasir
               </Button>
             </div>
@@ -293,7 +349,14 @@ function ProfilePage() {
               tetap aktif saat Anda keluar.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
+          <DialogFooter className="grid-cols-1!">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void logout()}
+            >
+              Keluar tanpa menutup shift
+            </Button>
             <Button asChild>
               <Link
                 to="/sesi-kas"
@@ -303,14 +366,7 @@ function ProfilePage() {
                 Tutup buku
               </Link>
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void logout()}
-            >
-              Keluar tanpa menutup shift
-            </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageLayout>

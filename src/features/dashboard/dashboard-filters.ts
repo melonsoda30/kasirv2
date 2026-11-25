@@ -33,7 +33,11 @@ export function readDashboardFilter(account: Account, action: DashboardReportAct
   dateRange?: DateRange;
 } {
   try {
-    const parsed = savedFilter.safeParse(JSON.parse(localStorage.getItem(filterStorageKey(account, action)) ?? "null"));
+    let saved = localStorage.getItem(filterStorageKey(account, action));
+    if (saved === null && action === "summary") {
+      saved = localStorage.getItem(filterStorageKey(account, "total_earning"));
+    }
+    const parsed = savedFilter.safeParse(JSON.parse(saved ?? "null"));
     if (parsed.success) {
       const { data } = parsed;
       if (data.period !== "range") return { period: data.period };

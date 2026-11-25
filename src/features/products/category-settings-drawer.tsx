@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
+  DialogBody,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -118,7 +121,7 @@ export function CategorySettingsDrawer({
           type="button"
           variant="outline"
           size="icon"
-          className="shrink-0"
+          className="size-12 shrink-0"
           aria-label="Pengaturan kategori"
         >
           <Settings aria-hidden="true" />
@@ -134,7 +137,7 @@ export function CategorySettingsDrawer({
             {editor?.type !== "save" && "Pengaturan kategori"}
           </DrawerTitle>
         </DrawerHeader>
-        <DrawerBody className="space-y-6 py-4">
+        <DrawerBody className="space-y-6">
           {editor?.type === "save" && (
             <form
               id="category-settings-form"
@@ -247,18 +250,25 @@ export function CategorySettingsDrawer({
                                 <Trash2 aria-hidden="true" />
                               </Button>
                             </DialogTrigger>
-                            <DialogContent>
+                            <DialogContent role="alertdialog" closeDisabled={change.isPending}>
                               <DialogHeader>
                                 <DialogTitle>Hapus kategori?</DialogTitle>
-                                <DialogDescription className="mb-4">
+                                <DialogDescription>
                                   Kategori {category.category_name} akan
                                   dihapus.
                                 </DialogDescription>
-                                {error && (
+                              </DialogHeader>
+                              {error && (
+                                <DialogBody>
                                   <p role="alert" className="text-destructive">
                                     {error}
                                   </p>
-                                )}
+                                </DialogBody>
+                              )}
+                              <DialogFooter>
+                                <DialogClose asChild>
+                                  <Button type="button" variant="outline" disabled={change.isPending}>Batal</Button>
+                                </DialogClose>
                                 <Button
                                   type="button"
                                   variant="destructive"
@@ -275,7 +285,7 @@ export function CategorySettingsDrawer({
                                 >
                                   Hapus kategori
                                 </Button>
-                              </DialogHeader>
+                              </DialogFooter>
                             </DialogContent>
                           </Dialog>
                         </>
@@ -289,7 +299,7 @@ export function CategorySettingsDrawer({
         </DrawerBody>
         <DrawerFooter>
           {editor?.type === "save" ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="modal-actions">
               <Button
                 type="button"
                 variant="outline"

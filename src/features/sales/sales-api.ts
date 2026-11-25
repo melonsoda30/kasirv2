@@ -21,6 +21,12 @@ interface TransactionItemData {
   discount?: string | number;
 }
 
+interface TransactionRefundData {
+  amount?: string | number | null;
+  method?: string | null;
+  reason?: string | null;
+}
+
 interface TransactionListData {
   summary: {
     transaction: SummaryEntry[];
@@ -37,11 +43,19 @@ interface TransactionListData {
     trx_sales?: { id: string | number; name: string } | null;
     trx_note?: string | null;
     trx_total: string | number;
+    trx_net_total?: string | number | null;
     trx_payment: string;
     trx_change: string | number;
     trx_total_items: number;
     trx_status: string;
     trx_items?: TransactionItemData[];
+    trx_refund?: TransactionRefundData | null;
+    refund?: TransactionRefundData | null;
+    refund_amount?: string | number | null;
+    refund_method?: string | null;
+    refund_note?: string | null;
+    omzet?: string | number | null;
+    restored?: string | number | null;
   }[];
 }
 
@@ -121,6 +135,8 @@ export function mapTransactionList(response: TransactionListResponse | null) {
     delete: "delete",
     deleted: "delete",
     cancelled: "delete",
+    refund_partial: "refund_partial",
+    refund_full: "refund_full",
   };
   const sales: Sale[] = data.data_trx.map((trx) => {
     const date = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/.exec(
@@ -129,6 +145,14 @@ export function mapTransactionList(response: TransactionListResponse | null) {
     const total = amount(trx.trx_total);
     const change = amount(trx.trx_change);
     const salesperson = trx.trx_sales;
+    const status = statuses[trx.trx_status.toLowerCase()] ?? "unknown";
+    const refunded = status === "refund_partial" || status === "refund_full";
+    const refund = trx.trx_refund ?? trx.refund;
+    const refundAmount = optionalAmount(refund?.amount ?? trx.refund_amount);
+    const refundMethod = (refund?.method ?? trx.refund_method)?.trim();
+    const refundReason = (refund?.reason ?? trx.refund_note)?.trim();
+    const restored = optionalAmount(trx.restored);
+    const netRevenue = optionalAmount(trx.trx_net_total ?? trx.omzet);
     return {
       id: trx.trx_id,
       cashier: trx.trx_kasir,
@@ -155,7 +179,11 @@ export function mapTransactionList(response: TransactionListResponse | null) {
       change,
       paid: total + change,
       paymentMethod: paymentLabel(trx.trx_payment),
-      status: statuses[trx.trx_status.toLowerCase()] ?? "unknown",
+      status,
+      ...(refunded && netRevenue !== undefined && { netRevenue }),
+      ...(refunded && (refundAmount !== undefined || refundMethod || refundReason || restored !== undefined) && {
+        refund: { amount: refundAmount, method: refundMethod, reason: refundReason, restored },
+      }),
       totalItems: amount(trx.trx_total_items),
       items: Array.isArray(trx.trx_items)
         ? trx.trx_items.map(mapTransactionItem)

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { InputNominal } from "@/components/input-nominal";
 import { SelectCombobox } from "@/components/select-combobox";
 import { Errors } from "@/components/errors";
+import { formatNominal } from "@/lib/currency";
 import { getErrorMessages } from "@/lib/error-messages";
 import { Textarea } from "@/components/ui/textarea";
 import { discountTypes } from "./sample-products";
-import { getAccountBranches, useAuthStore } from "@/features/auth/auth-store";
+import { getAccountBranches, getAdminBranch, getBranchFilterId, useAuthStore } from "@/features/auth/auth-store";
+import type { AdminBranchChangeStatus } from "@/features/auth/admin-branch-drawer";
 import { useProductCatalog } from "./use-product-catalog";
 import { saveProduct } from "./product-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,10 +22,12 @@ import { useCanManageCategories, useProductCategories } from "./use-product-cate
 import { isAxiosError } from "axios";
 import type { Product } from "./sample-products";
 import { productSchema } from "./product-schema";
+import { ProductStockToggle } from "./product-stock-toggle";
 import { Plus, X } from "lucide-react";
 import { ImageInput, type UploadStatus } from "@/components/image-input";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -38,10 +42,14 @@ const fieldLabels: Record<string, string> = {
   price: "Harga",
   discountType: "Jenis diskon",
   discount: "Nominal diskon",
+  stock: "Jumlah stok",
   description: "Deskripsi",
 };
 
-export function ProductForm({ product }: { product?: Product }) {
+export function ProductForm({ product, branchGuardRef }: {
+  product?: Product;
+  branchGuardRef?: RefObject<(() => AdminBranchChangeStatus) | null>;
+}) {
   const categoryInput = useRef<HTMLInputElement>(null);
   const [errorDialogOpen, setErrorDialogOpen] = useState(false);
   const [submitErrors, setSubmitErrors] = useState<
@@ -49,17 +57,17 @@ export function ProductForm({ product }: { product?: Product }) {
   >([]);
   const navigate = useNavigate();
   const account = useAuthStore((state) => state.session?.account);
+  const adminBranchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
   const queryClient = useQueryClient();
   const catalog = useProductCatalog();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
-  const storeOptions = getAccountBranches(account?.store).map((branch) => ({
-    value: branch.id,
-    label: branch.name,
-  }));
+  const storeOptions = getAccountBranches(account?.store)
+    .filter(({ id }) => getBranchFilterId(id))
+    .map((branch) => ({ value: branch.id, label: branch.name }));
   const currentStore = product
     ? product.branchId || product.storeId
-    : account?.store?.branch_id;
+    : getBranchFilterId(adminBranchId ?? account?.store?.branch_id);
   const defaultStore = storeOptions.find(({ value }) => value === currentStore)?.value
     ?? (!product && storeOptions.length === 1 ? storeOptions[0].value : "");
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
@@ -101,6 +109,8 @@ export function ProductForm({ product }: { product?: Product }) {
           : ""),
       discount: product?.discount ? String(product.discount) : "",
       discountType: product?.discountType || discountTypes[0],
+      useStock: product?.useStock ?? true,
+      stock: String(product?.stock ?? 0),
       description: product?.description ?? "",
     },
     validators: {
@@ -140,6 +150,9 @@ export function ProductForm({ product }: { product?: Product }) {
       const parsed = productSchema.parse(value);
       const matchingCategory = availableCategories.find((item) => item.category_slug === parsed.category)
         ?? availableCategories.find((item) => item.category_name.toLowerCase() === parsed.category.toLowerCase());
+      const stockChanged = !product || parsed.useStock !== (product.useStock ?? true)
+        || (parsed.useStock && Number(parsed.stock) !== product.stock);
+      const stockQuantity = parsed.useStock ? parsed.stock : "";
       setSaving(true);
       try {
         const message = await saveProduct({
@@ -152,9 +165,11 @@ export function ProductForm({ product }: { product?: Product }) {
           description: parsed.description.trim(),
           discount: parsed.discount,
           discountType: parsed.discountType,
+          useStock: parsed.useStock,
+          stockQuantity: stockChanged ? stockQuantity : undefined,
         });
         await queryClient.invalidateQueries({
-          queryKey: ["products", "catalog"],
+          queryKey: ["products"],
         });
         toast.success(message);
         await navigate({ to: "/produk" });
@@ -169,6 +184,15 @@ export function ProductForm({ product }: { product?: Product }) {
       }
     },
   });
+
+  useEffect(() => {
+    if (!branchGuardRef) return;
+    branchGuardRef.current = () => {
+      if (saving || uploadStatus.busy || addCategoryMutation.isPending || form.state.isSubmitting) return "busy";
+      if (form.state.isDirty || imageFile) return "dirty";
+    };
+    return () => { branchGuardRef.current = null; };
+  }, [branchGuardRef, form, saving, uploadStatus.busy, addCategoryMutation.isPending, imageFile]);
 
   return (
     <>
@@ -210,6 +234,7 @@ export function ProductForm({ product }: { product?: Product }) {
                       type="button"
                       variant="outline"
                       size="icon"
+                      className="size-12"
                       aria-label="Batal memilih kategori dan ketik kategori baru"
                       onClick={() => {
                         setSelectedCategory("");
@@ -226,6 +251,7 @@ export function ProductForm({ product }: { product?: Product }) {
                       type="button"
                       variant="outline"
                       size="icon"
+                      className="size-12"
                       aria-label="Tambah kategori"
                       loading={addCategoryMutation.isPending}
                       disabled={!field.state.value.trim()}
@@ -471,6 +497,46 @@ export function ProductForm({ product }: { product?: Product }) {
             </form.Subscribe>
           </fieldset>
 
+          <form.Field name="useStock">
+            {(field) => (
+              <div className="space-y-3">
+                <ProductStockToggle
+                  name={field.name}
+                  checked={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.checked)}
+                  onBlur={field.handleBlur}
+                />
+                {field.state.value && (
+                  <form.Field name="stock">
+                    {(field) => (
+                      <div className="space-y-2">
+                        <label htmlFor="product-stock" className="text-sm font-medium">
+                          Jumlah stok <span aria-hidden="true">*</span>
+                        </label>
+                        <InputNominal
+                          id="product-stock"
+                          name={field.name}
+                          value={field.state.value}
+                          onValueChange={field.handleChange}
+                          onBlur={field.handleBlur}
+                          aria-required
+                          aria-invalid={!field.state.meta.isValid}
+                          aria-describedby={product ? "product-stock-current stock-error" : "stock-error"}
+                        />
+                        {product && (
+                          <p id="product-stock-current" className="text-xs text-muted-foreground">
+                            Stok saat ini <span className="font-medium tabular-nums">{formatNominal(product.stock)} unit</span>
+                          </p>
+                        )}
+                        <Errors id="stock-error" errors={field.state.meta.errors} />
+                      </div>
+                    )}
+                  </form.Field>
+                )}
+              </div>
+            )}
+          </form.Field>
+
           <form.Field name="description">
             {(field) => (
               <div className="space-y-2">
@@ -519,16 +585,18 @@ export function ProductForm({ product }: { product?: Product }) {
               Perbaiki field berikut sebelum menyimpan.
             </DialogDescription>
           </DialogHeader>
-          <ul className="max-h-[50dvh] space-y-4 overflow-y-auto py-2">
-            {submitErrors.map(({ field, messages }) => (
-              <li key={field} className="space-y-1">
-                <p className="text-sm font-medium">
-                  {fieldLabels[field] ?? field}
-                </p>
-                <p className="text-sm text-muted-foreground">{messages[0]}</p>
-              </li>
-            ))}
-          </ul>
+          <DialogBody>
+            <ul className="space-y-4">
+              {submitErrors.map(({ field, messages }) => (
+                <li key={field} className="space-y-1">
+                  <p className="text-sm font-medium">
+                    {fieldLabels[field] ?? field}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{messages[0]}</p>
+                </li>
+              ))}
+            </ul>
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </>

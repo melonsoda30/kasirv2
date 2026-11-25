@@ -22,15 +22,17 @@ const statuses = [
 export function ProductFilterDrawer({
   filters,
   stores,
+  hideStore = false,
   onSave,
 }: {
   filters: ProductFilters;
   stores: Branch[];
+  hideStore?: boolean;
   onSave: (filters: ProductFilters) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(filters);
-  const active = filters.store !== "all" || filters.status !== "all";
+  const active = (!hideStore && filters.store !== "all") || filters.status !== "all";
 
   return (
     <Drawer
@@ -57,32 +59,33 @@ export function ProductFilterDrawer({
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Filter produk</DrawerTitle>
-          {/* <DrawerDescription>Pilih store dan status, lalu simpan untuk menerapkan.</DrawerDescription> */}
         </DrawerHeader>
-        <DrawerBody className="space-y-6 py-4">
-          <fieldset className="min-w-0 space-y-3">
-            <legend className="mb-2 text-sm font-medium">Store</legend>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { value: "all", label: "Semua" },
-                ...stores.map(({ id, name }) => ({ value: id, label: name })),
-              ].map(({ value, label }) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
-                  variant={draft.store === value ? "default" : "outline"}
-                  aria-pressed={draft.store === value}
-                  onClick={() =>
-                    setDraft((current) => ({ ...current, store: value }))
-                  }
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </fieldset>
+        <DrawerBody className="space-y-6">
+          {!hideStore && (
+            <fieldset className="min-w-0 space-y-3">
+              <legend className="mb-2 text-sm font-medium">Store</legend>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: "all", label: "Semua" },
+                  ...stores.map(({ id, name }) => ({ value: id, label: name })),
+                ].map(({ value, label }) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
+                    variant={draft.store === value ? "default" : "outline"}
+                    aria-pressed={draft.store === value}
+                    onClick={() =>
+                      setDraft((current) => ({ ...current, store: value }))
+                    }
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+          )}
           <fieldset className="min-w-0 space-y-3">
             <legend className="mb-2 text-sm font-medium">Status</legend>
             <div className="flex flex-wrap gap-2">

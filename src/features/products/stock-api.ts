@@ -1,4 +1,5 @@
 import { isEmptyListResponse, request } from "@/lib/api";
+import { getBranchFilterId } from "@/features/auth/auth-store";
 
 interface StockHistoryEntry {
   at: string;
@@ -19,13 +20,15 @@ export interface StockRecord {
   price: string;
   store_id: string;
   branch_id: string;
+  branch_name?: string | null;
   quantity: number;
   product_status: string;
   updated_at: string;
   history: StockHistoryEntry[];
 }
 
-export async function fetchProductStock(signal: AbortSignal) {
+export async function fetchProductStock(signal: AbortSignal, branchId?: string) {
+  const filterId = getBranchFilterId(branchId);
   const response = await request<
     | StockRecord[]
     | { status?: string; msg?: string; data?: StockRecord[] }
@@ -33,7 +36,7 @@ export async function fetchProductStock(signal: AbortSignal) {
   >({
     url: "/admin/stock",
     method: "GET",
-    params: { action: "list_stock" },
+    params: { action: "list_stock", ...(filterId && { branch_id: filterId }) },
     signal,
   });
   if (isEmptyListResponse(response)) return [];
@@ -49,7 +52,7 @@ export async function fetchProductStock(signal: AbortSignal) {
     throw new Error("Format daftar stok dari server tidak valid.");
   }
 
-  return records;
+  return filterId ? records.filter((item) => item.branch_id === filterId) : records;
 }
 
 export async function updateProductStock(input: {

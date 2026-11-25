@@ -1,6 +1,6 @@
 import type { SalesFilters } from './sales-filters'
 
-export type SaleStatus = 'complete' | 'pending' | 'delete' | 'unknown'
+export type SaleStatus = 'complete' | 'pending' | 'delete' | 'refund_partial' | 'refund_full' | 'unknown'
 
 export interface SaleItem {
   productId: string
@@ -39,6 +39,8 @@ export interface Sale {
   paymentProof?: { url: string; name?: string; type: 'image' | 'document' }
   /** Final sale amount after discounts, excluding change. */
   total: number
+  netRevenue?: number
+  refund?: { amount?: number; method?: string; reason?: string; restored?: number }
   paid: number
   change?: number
   totalItems?: number
@@ -76,10 +78,13 @@ export function summarizeSales(sales: readonly Sale[]): SalesSummary {
   const paymentTotals: Record<string, number> = {}
   let total = 0, productsSold = 0, change = 0
   for (const sale of sales) {
-    total += sale.total
-    productsSold += sale.totalItems ?? sale.items.reduce((quantity, item) => quantity + item.quantity, 0)
+    const revenue = sale.netRevenue ?? (sale.status === 'refund_full' ? 0 : sale.total)
+    total += revenue
+    if (sale.status !== 'refund_full') {
+      productsSold += sale.totalItems ?? sale.items.reduce((quantity, item) => quantity + item.quantity, 0)
+    }
     change += Math.max(0, sale.paid - sale.total)
-    paymentTotals[sale.paymentMethod] = (paymentTotals[sale.paymentMethod] ?? 0) + sale.total
+    paymentTotals[sale.paymentMethod] = (paymentTotals[sale.paymentMethod] ?? 0) + revenue
   }
   return { transactions: sales.length, productsSold, total, change, paymentTotals }
 }

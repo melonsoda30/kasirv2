@@ -12,6 +12,7 @@ const paymentRecord = z.object({
   fee_code: z.string().nullish(),
   fee: z.coerce.number().nonnegative().nullish(),
   fee_type: z.string().nullish(),
+  fee_bearer: z.string().nullish(),
   image: z.string().nullish(),
   is_active: z.boolean(),
   fee_active: z.boolean(),
@@ -21,7 +22,6 @@ const paymentList = z.array(paymentRecord);
 
 type PaymentMethod = PaymentReceipt["method"] & {
   image?: string;
-  fee?: { amount: number; type: string };
   missingFee: boolean;
 };
 
@@ -78,9 +78,10 @@ export async function fetchPaymentMethods(
             ? paymentImageUrl(image, "transaksi")
             : undefined,
         fee:
-          hasFee && record.fee_found && record.fee_active && record.fee
+          hasFee && record.fee_found && record.fee_active && record.fee != null
             ? { amount: record.fee, type: record.fee_type ?? "" }
             : undefined,
+        feeBearer: record.fee_bearer,
         missingFee: hasFee && !record.fee_found,
       },
     ];

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
@@ -8,17 +8,26 @@ import { Button } from '@/components/ui/button'
 import { SkeletonFields, SkeletonGroup } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { PageLayout } from '@/components/page-layout'
+import { AdminBranchSwitcher, type AdminBranchChangeStatus } from '@/features/auth/admin-branch-drawer'
+import { getAdminBranch, useAuthStore } from '@/features/auth/auth-store'
 import { deleteProduct } from '@/features/products/product-api'
 import { ProductForm } from '@/features/products/product-form'
-import { useProductStore } from '@/features/products/product-store'
 import { useProductCatalog } from '@/features/products/use-product-catalog'
 
-export const Route = createFileRoute('/produk_/$productId/edit')({ component: EditProductPage })
+export const Route = createFileRoute('/produk_/$productId/edit')({
+  validateSearch: (search: Record<string, unknown>): { branch?: string } => ({
+    branch: typeof search.branch === 'string' ? search.branch : undefined,
+  }),
+  component: EditProductPage,
+})
 
 function EditProductPage() {
-  const catalog = useProductCatalog()
+  const branchId = useAuthStore((state) => getAdminBranch(state.session)?.id)
+  const catalog = useProductCatalog(branchId)
   const { productId } = Route.useParams()
-  const product = useProductStore((state) => state.products.find((item) => item.id === productId))
+  const { branch } = Route.useSearch()
+  const product = catalog.data?.find((item) => item.id === productId && (!branch || item.branchId === branch))
+  const guard = useRef<(() => AdminBranchChangeStatus) | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -35,21 +44,22 @@ function EditProductPage() {
         : error.message)
     },
   })
+  const branchSwitcher = <AdminBranchSwitcher getFormStatus={() => deletion.isPending ? 'busy' : guard.current?.()} onApplied={() => void navigate({ to: '/produk', replace: true })} />
   if (catalog.isPending) return (
-    <PageLayout title="Edit produk" prevLink="/produk">
+    <PageLayout title="Edit produk" prevLink="/produk" branchSwitcher={branchSwitcher}>
       <SkeletonGroup label="Memuat produk" className="bento-surface p-4 sm:p-5">
         <SkeletonFields rows={4} />
       </SkeletonGroup>
     </PageLayout>
   )
-  if (catalog.isError) return <PageLayout title="Edit produk" prevLink="/produk"><p role="alert">Gagal memuat produk.</p><Button type="button" variant="outline" loading={catalog.isFetching} onClick={() => void catalog.refetch()}>Coba lagi</Button></PageLayout>
+  if (catalog.isError) return <PageLayout title="Edit produk" prevLink="/produk" branchSwitcher={branchSwitcher}><p role="alert">Gagal memuat produk.</p><Button type="button" variant="outline" loading={catalog.isFetching} onClick={() => void catalog.refetch()}>Coba lagi</Button></PageLayout>
   if (!product) return (
-    <PageLayout title="Produk tidak ditemukan" prevLink="/produk">
+    <PageLayout title="Produk tidak ditemukan" prevLink="/produk" branchSwitcher={branchSwitcher}>
       <Button asChild variant="outline"><Link to="/produk">Kembali ke produk</Link></Button>
     </PageLayout>
   )
   return (
-    <PageLayout title="Edit produk" prevLink="/produk" headerAction={
+    <PageLayout title="Edit produk" prevLink="/produk" branchSwitcher={branchSwitcher} headerAction={
       <Dialog open={deleteOpen} onOpenChange={(open) => {
         if (!deletion.isPending) setDeleteOpen(open)
       }}>
@@ -58,7 +68,7 @@ function EditProductPage() {
             <Trash2 aria-hidden="true" />
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent role="alertdialog" closeDisabled={deletion.isPending}>
           <DialogHeader>
             <DialogTitle>Hapus produk?</DialogTitle>
             <DialogDescription>Produk “{product.title}” akan dihapus dari katalog.</DialogDescription>
@@ -74,7 +84,7 @@ function EditProductPage() {
         </DialogContent>
       </Dialog>
     }>
-      <ProductForm key={product.id} product={product} />
+      <ProductForm key={JSON.stringify([product.id, product.branchId])} product={product} branchGuardRef={guard} />
     </PageLayout>
   )
 }

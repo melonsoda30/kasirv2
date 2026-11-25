@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Product } from '../products/sample-products'
 import { getProductPricing } from '../products/product-pricing'
+import { availableProductStock } from '../products/product-stock'
 import { getCashierBranch, useAuthStore, type AuthSession } from '../auth/auth-store'
 import type { Sale } from '../sales/sales-summary'
 
@@ -92,10 +93,10 @@ export const useOrderStore = create<OrderState>()(persist((set, get) => ({
     if (!active && (state.orders.length || quantity === 0)) return 'Pilih pesanan terlebih dahulu.'
     const key = productKey(product)
     const existing = active?.items.find((item) => item.key === key)
-    if (quantity > (existing?.quantity ?? 0) && (!product.active || product.stock <= 0)) return 'Produk sedang tidak tersedia.'
+    if (quantity > (existing?.quantity ?? 0) && (!product.active || availableProductStock(product) <= 0)) return 'Produk sedang tidak tersedia.'
     const reserved = state.orders.filter((order) => order.id !== active?.id)
       .reduce((sum, order) => sum + order.items.reduce((count, item) => count + (item.key === key ? item.quantity : 0), 0), 0)
-    if (quantity > 0 && quantity >= (existing?.quantity ?? 0) && quantity > Math.max(0, product.stock - reserved)) return 'Jumlah melebihi stok yang tersedia untuk pesanan ini.'
+    if (quantity > 0 && quantity >= (existing?.quantity ?? 0) && quantity > availableProductStock(product, reserved)) return 'Jumlah melebihi stok yang tersedia untuk pesanan ini.'
     const line: OrderLine = { key, product, quantity, unitPrice: getProductPricing(product).finalPrice }
     if (!active) {
       const id = crypto.randomUUID()

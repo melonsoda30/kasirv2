@@ -45,14 +45,14 @@ function PasswordField({
           disabled={disabled}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="h-10 pr-10"
+          className="pr-12"
         />
         <Button
           type="button"
           variant="ghost"
           size="icon"
           disabled={disabled}
-          className="absolute top-1 right-1"
+          className="absolute top-1/2 right-1 size-10 -translate-y-1/2"
           aria-label={
             visible
               ? `Sembunyikan ${label.toLowerCase()}`

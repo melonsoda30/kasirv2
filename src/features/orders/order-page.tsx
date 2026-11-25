@@ -7,8 +7,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,6 +37,7 @@ import {
 import { ProductImage } from "@/features/products/product-card";
 import { ProductPrice } from "@/features/products/product-price";
 import { getProductPricing } from "@/features/products/product-pricing";
+import { availableProductStock } from "@/features/products/product-stock";
 import type { Product } from "@/features/products/sample-products";
 import { useProductCategories } from "@/features/products/use-product-categories";
 import { formatCurrency } from "@/lib/currency";
@@ -78,11 +81,13 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
       ),
     0,
   );
-  const remaining = edit?.remaining ?? Math.max(0, product.stock - reserved);
-  const unavailable = edit ? edit.busy || remaining <= 0 : !product.active || product.stock <= 0;
+  const usesStock = product.useStock !== false;
+  const remaining = edit?.remaining ?? availableProductStock(product, reserved);
+  const unavailable = edit ? edit.busy || remaining <= 0 : !product.active || availableProductStock(product) <= 0;
   const lowStock = isLowStock(product, remaining);
-  const outOfStock = remaining <= 0;
-  const stockLabel = outOfStock ? "Stok habis" : `Stok tersedia ${remaining}`;
+  const outOfStock = usesStock && remaining <= 0;
+  let stockLabel = "Tanpa stok";
+  if (usesStock) stockLabel = outOfStock ? "Stok habis" : `Stok tersedia ${remaining}`;
   const stockWarning = lowStock && (
     <StatusBadge tone="warning">Hampir habis</StatusBadge>
   );
@@ -160,7 +165,7 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
                 type="button"
                 variant="outline"
                 size="icon"
-                className="size-11"
+                className="size-12"
                 disabled={quantity <= 1}
                 onClick={() => setQuantity((value) => value - 1)}
                 aria-label="Kurangi jumlah"
@@ -171,18 +176,18 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
                 type="number"
                 inputMode="numeric"
                 min={1}
-                max={remaining}
+                max={usesStock ? remaining : undefined}
                 step={1}
                 aria-label="Jumlah produk"
                 value={quantity || ""}
                 onChange={(event) => setQuantity(Number(event.target.value))}
-                className="h-11 w-16 text-center tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [appearance:textfield]"
+                className="w-16 text-center tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [appearance:textfield]"
               />
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="size-11"
+                className="size-12"
                 disabled={quantity >= remaining}
                 onClick={() => setQuantity((value) => value + 1)}
                 aria-label="Tambah jumlah"
@@ -364,7 +369,6 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
             placeholder="Cari produk..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="h-9"
           />
         </div>
         <div className="page-gutter flex h-14 items-center gap-2">
@@ -514,7 +518,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
                   loading={pendingEdit.isPending} onClick={saveEditedOrder}>Simpan</Button>
               </>}
               {!editTrxId && canTransact && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="modal-actions">
                   <PendingOrderButton key={active.id} account={account} order={active}
                     onQueued={() => setSummaryOpen(false)} onShiftRequired={() => {
                       openShiftAfterSummary.current = true;
@@ -538,7 +542,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
       <Dialog open={!!cancelId} onOpenChange={(open) => {
         if (!open && !cancelPending.isPending) setCancelId(null);
       }}>
-        <DialogContent role="alertdialog" showCloseButton={false}>
+        <DialogContent role="alertdialog" closeDisabled={cancelPending.isPending}>
           <DialogHeader>
             <DialogTitle>Hapus produk terakhir?</DialogTitle>
             <DialogDescription>
@@ -546,11 +550,13 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
             </DialogDescription>
           </DialogHeader>
           {cancelPending.isError && (
-            <p role="alert" className="text-sm text-destructive">{cancelPending.error.message}</p>
+            <DialogBody>
+              <p role="alert" className="text-destructive">{cancelPending.error.message}</p>
+            </DialogBody>
           )}
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" disabled={cancelPending.isPending} onClick={() => setCancelId(null)}>
-              Tidak
+              Batal
             </Button>
             <Button type="button" variant="destructive" loading={cancelPending.isPending}
               disabled={cancelPending.isPending || cancelId !== serverOrder?.id}
@@ -566,7 +572,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
               }}>
               Hapus
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

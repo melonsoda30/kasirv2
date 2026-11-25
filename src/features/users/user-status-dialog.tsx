@@ -2,7 +2,7 @@ import { useState } from "react";
 import { UserRoundCheck, UserRoundX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { useChangeUser, userDisplayName, type UserRecord } from "./users-api";
 
@@ -25,14 +25,16 @@ export function UserStatusDialog({ user }: { user: UserRecord }) {
           <StatusIcon aria-hidden="true" />
         </Button>
       </DialogTrigger>
-      <DialogContent showCloseButton={false}>
+      <DialogContent closeDisabled={change.isPending}>
         <DialogHeader>
           <DialogTitle>{label} pengguna?</DialogTitle>
           <DialogDescription>
             {deactivating ? `${name} akan kehilangan akses login.` : `Akun ${name} akan diaktifkan kembali.`}
           </DialogDescription>
         </DialogHeader>
-        {change.error && <p role="alert" className="text-sm text-destructive">{change.error.message}</p>}
+        {change.error && (
+          <DialogBody><p role="alert" className="text-destructive">{change.error.message}</p></DialogBody>
+        )}
         <DialogFooter>
           <Button type="button" variant="outline" disabled={change.isPending} onClick={() => setOpen(false)}>Batal</Button>
           <Button type="button" variant={deactivating ? "destructive" : "default"} loading={change.isPending}

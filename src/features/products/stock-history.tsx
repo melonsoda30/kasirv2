@@ -21,7 +21,7 @@ function StockHistoryRow({ entry, day }: { entry: HistoryEntry; day: string }) {
     <li className="space-y-2 p-3 sm:px-4">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <div className="min-w-0 space-y-0.5">
-          <p className="break-words font-medium">{entry.type === "mutasi" ? "Mutasi stok" : entry.type}</p>
+          <p className="break-words font-medium">{entry.type === "mutasi" ? "Perbarui stok" : entry.type}</p>
           {(time || actor || (!day && timestamp)) && (
             <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
               {time && <time dateTime={timestamp} className="tabular-nums">{time}</time>}
@@ -62,7 +62,7 @@ export function StockHistory({ item }: { item: StockRecord }) {
   }
 
   return (
-    <DrawerBody className="flow-panel space-y-4 py-4">
+    <DrawerBody className="flow-panel space-y-4">
       <dl className="bento-surface space-y-1 p-3 sm:p-4">
         <dt className="text-xs text-muted-foreground">Stok saat ini</dt>
         <dd className="flex flex-wrap items-center justify-between gap-2">

@@ -6,8 +6,9 @@ import { SelectCombobox } from "@/components/select-combobox";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { PaymentFeeBearerField } from "./payment-fee-bearer-field";
 import type { SaveStoreSettings } from "./store-settings-page";
-import type { StoreSettings } from "./store-settings-query";
+import { isPaymentFeeBearer, type StoreSettings } from "./store-settings-query";
 
 const paymentTypes = [
   { value: "cash", label: "Tunai" },
@@ -70,6 +71,11 @@ export function AddPaymentMethod({ payment, update }: {
       setError("Pilih jenis biaya dan isi nilai biaya yang valid.");
       return;
     }
+    const feeBearer = new FormData(event.currentTarget).get("fee_bearer");
+    if (hasFee && !isPaymentFeeBearer(feeBearer)) {
+      setError("Pilih penanggung biaya.");
+      return;
+    }
 
     const { cash, suffix } = draftCodes.current;
     const code = type === "cash" ? cash : `${type}_${suffix}`;
@@ -88,7 +94,14 @@ export function AddPaymentMethod({ payment, update }: {
           throw new Error("Nama ini sudah dipakai untuk jenis metode tersebut. Gunakan nama lain.");
         }
         return {
-          payment: [...current.payment, { code, title, type, fee_code: feeCode || null, is_active: true }],
+          payment: [...current.payment, {
+            code,
+            title,
+            type,
+            fee_code: feeCode || null,
+            ...(hasFee && isPaymentFeeBearer(feeBearer) && { fee_bearer: feeBearer }),
+            is_active: true,
+          }],
           ...(feeCode && {
             fee: [...current.fee, {
               code: feeCode,
@@ -123,7 +136,7 @@ export function AddPaymentMethod({ payment, update }: {
           <DrawerDescription>Metode ini akan tersedia untuk kasir.</DrawerDescription>
         </DrawerHeader>
         {open && (
-          <form id={id} onSubmit={submit} className="drawer-body space-y-4">
+          <form id={id} onSubmit={submit} className="modal-body space-y-4">
             <fieldset disabled={pending} className="min-w-0 space-y-4">
               <label className="grid gap-2 text-sm">
                 Nama metode
@@ -146,6 +159,7 @@ export function AddPaymentMethod({ payment, update }: {
                     <Input name="fee" type="number" min={0} step="any" value={fee}
                       onChange={(event) => setFee(event.target.value)} required />
                   </label>
+                  <PaymentFeeBearerField disabled={pending} />
                 </>
               )}
               {type === "qris" && (
@@ -156,7 +170,7 @@ export function AddPaymentMethod({ payment, update }: {
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           </form>
         )}
-        <DrawerFooter className="grid grid-cols-2">
+        <DrawerFooter actions>
           <Button type="button" variant="outline" disabled={pending} onClick={() => changeOpen(false)}>Batal</Button>
           <Button type="submit" form={id} loading={pending} disabled={type === "qris" && (upload.busy || !!upload.error)}>Simpan</Button>
         </DrawerFooter>

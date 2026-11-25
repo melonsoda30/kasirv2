@@ -22,9 +22,11 @@ type StockStep = "history" | "mutation" | "reset" | "confirm-reset";
 
 export function StockDrawer({
   item,
+  branchName,
   children,
 }: {
   item: StockRecord;
+  branchName?: string;
   children: ReactNode;
 }) {
   const id = useId();
@@ -37,7 +39,7 @@ export function StockDrawer({
   const confirmingReset = step === "confirm-reset";
   const resettingStock = step === "reset" || confirmingReset;
   let title = "Histori stok";
-  if (step === "mutation") title = "Mutasi stok";
+  if (step === "mutation") title = "Perbarui stok";
   if (step === "reset") title = "Reset stok";
   if (confirmingReset) title = "Konfirmasi reset stok";
   let submitLabel = "Simpan";
@@ -113,7 +115,7 @@ export function StockDrawer({
       <DrawerTrigger asChild>
         <button
           type="button"
-          aria-label={`Histori stok ${item.product_name}`}
+          aria-label={`Histori stok ${item.product_name}${branchName ? ` di ${branchName}` : ""}`}
           className="bento-surface flex h-full w-full items-center gap-3 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring"
         >
           {children}
@@ -128,12 +130,12 @@ export function StockDrawer({
           <>
             <StockHistory item={item} />
             <DrawerFooter>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="modal-actions">
                 <Button type="button" variant="outline" onClick={() => setStep("reset")}>
                   <RotateCcw aria-hidden="true" /> Reset stok
                 </Button>
                 <Button type="button" onClick={() => setStep("mutation")}>
-                  <ArrowDownUp aria-hidden="true" /> Mutasi stok
+                  <ArrowDownUp aria-hidden="true" /> Perbarui stok
                 </Button>
               </div>
             </DrawerFooter>
@@ -145,7 +147,7 @@ export function StockDrawer({
               key={step}
               id={formId}
               onSubmit={submit}
-              className="drawer-body flow-panel space-y-4"
+              className="modal-body flow-panel space-y-4"
             >
               {confirmingReset && (
                 <div className="space-y-3 rounded-xl border p-3">
@@ -200,7 +202,7 @@ export function StockDrawer({
               )}
             </form>
             <DrawerFooter>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="modal-actions">
                 <Button
                   type="button"
                   variant="outline"

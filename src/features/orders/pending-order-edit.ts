@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/features/auth/auth-store'
 import { refreshCashSessionData } from '@/features/cash-session/cash-session-query'
 import { getProductPricing } from '@/features/products/product-pricing'
+import { availableProductStock } from '@/features/products/product-stock'
 import type { Product } from '@/features/products/sample-products'
 import type { Sale } from '@/features/sales/sales-summary'
 import { orderOwner, productKey, type OrderDraft, type OrderLine } from './order-store'
@@ -18,7 +19,8 @@ export function pendingOrderSearch(search: Record<string, unknown>): { edit?: st
 
 export function pendingQuantityLimit(original: OrderDraft, id: string, product?: Product) {
   const reserved = original.items.find((item) => item.product.id === id)?.quantity ?? 0
-  return reserved + (product?.active ? Math.max(0, Math.floor(product.stock)) : 0)
+  if (!product?.active) return reserved
+  return Math.min(Number.MAX_SAFE_INTEGER, reserved + Math.floor(availableProductStock(product)))
 }
 
 export function changePendingQuantity(order: OrderDraft, original: OrderDraft, id: string, quantity: number, product?: Product) {

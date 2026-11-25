@@ -47,6 +47,7 @@ import { orderOwner, pendingOrderDraft, useOrderStore, type OrderDraft } from ".
 import { PaymentAdjustment } from "./payment-adjustment";
 import {
   editableSaleFees,
+  customerPaymentFee,
   pendingPaymentDetails,
   paymentTotals,
   resolvePendingTransaction,
@@ -120,7 +121,7 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
   const prevSearch = pending && returnSession ? { session: returnSession } : undefined;
 
   return (
-    <PageLayout title="Pembayaran" prevLink={prevLink} prevSearch={prevSearch} wide>
+    <PageLayout title="Pembayaran" prevLink={prevLink} prevSearch={prevSearch} branchSwitcher={null} wide>
       {receipt && (
         <PaymentCompleteDrawer receipt={receipt} returnSession={returnSession} />
       )}
@@ -205,9 +206,11 @@ function PaymentCompleteDrawer({ receipt, returnSession }: {
       }}
     >
       <DrawerContent>
-        <DrawerHeader className="text-center">
-          <CircleCheck className="mx-auto mb-2 size-10 fill-success-indicator text-status-icon-foreground" aria-hidden="true" />
-          <DrawerTitle>Pembayaran selesai</DrawerTitle>
+        <DrawerHeader>
+          <DrawerTitle className="flex items-center justify-center gap-2">
+            <CircleCheck className="size-5 shrink-0 fill-success-indicator text-status-icon-foreground" aria-hidden="true" />
+            Pembayaran selesai
+          </DrawerTitle>
           <DrawerDescription className="wrap-anywhere">
             {receipt.order.name === receipt.transactionId ? "Rincian pembelian" : receipt.order.name}
           </DrawerDescription>
@@ -363,7 +366,7 @@ function PaymentForm({
   const pendingPayment = pendingSale && pendingPaymentDetails(order, pendingSale, method, recordedMethod, {
     additionalPrices: fees, discounts,
   });
-  const totals = pendingPayment?.totals ?? paymentTotals(order, feeList, discountList, method?.fee);
+  const totals = pendingPayment?.totals ?? paymentTotals(order, feeList, discountList, method);
   const selectedFee = drawer === "fee" && adjustmentIndex !== undefined ? feeList[adjustmentIndex] : undefined;
   const selectedDiscount = drawer === "discount" && adjustmentIndex !== undefined ? discountList[adjustmentIndex] : undefined;
   let initialAdjustment: AdditionalFee | Discount | null = null;
@@ -590,6 +593,7 @@ function PaymentForm({
           <ul className="space-y-2">
             {methods.map((entry) => {
               const Icon = paymentIcons[entry.kind];
+              const fee = customerPaymentFee(entry);
               return (
                 <li key={entry.code}>
                   <Button
@@ -609,11 +613,11 @@ function PaymentForm({
                     <Icon aria-hidden="true" />
                     <span className="min-w-0 flex-1">
                       <span className="block">{entry.title}</span>
-                      {entry.fee && (
+                      {fee && (
                         <span className="block text-xs text-muted-foreground">
-                          {entry.fee.type === "percent"
-                            ? entry.fee.amount.toLocaleString("id-ID") + "%"
-                            : formatCurrency(entry.fee.amount)}
+                          {fee.type === "percent"
+                            ? fee.amount.toLocaleString("id-ID") + "%"
+                            : formatCurrency(fee.amount)}
                         </span>
                       )}
                       {entry.missingFee && (
@@ -802,7 +806,7 @@ function PaymentForm({
                 <>
                   <form
                     id={cashFormId}
-                    className="drawer-body"
+                    className="modal-body"
                     onSubmit={(event) => {
                       event.preventDefault();
                       if (!cashInputValid) return;
@@ -821,7 +825,7 @@ function PaymentForm({
                     </label>
                   </form>
                   <DrawerFooter>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="modal-actions">
                       <DrawerClose asChild>
                         <Button type="button" variant="outline">
                           Batal
@@ -863,7 +867,7 @@ function PaymentForm({
                     )}
                   </DrawerBody>
                   <DrawerFooter>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="modal-actions">
                       <DrawerClose asChild>
                         <Button type="button" variant="outline">
                           Batal
@@ -895,7 +899,7 @@ function PaymentForm({
                   )}
                 </DrawerBody>
                 <DrawerFooter>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="modal-actions">
                     <DrawerClose asChild><Button type="button" variant="outline" disabled={busy}>Batal</Button></DrawerClose>
                     <Button type="button" loading={busy} disabled={busy} onClick={() => void finish()}>Selesaikan pembayaran</Button>
                   </div>

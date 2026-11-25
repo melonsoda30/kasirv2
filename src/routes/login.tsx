@@ -57,7 +57,9 @@ function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-[clamp(2.25rem,9dvh,4.5rem)] h-12 w-32 overflow-hidden">
           {logoUnavailable ? (
-            <p className="text-4xl leading-12 font-bold tracking-tight text-link">YPOS</p>
+            <p className="text-4xl leading-12 font-bold tracking-tight text-link">
+              YPOS
+            </p>
           ) : (
             <img
               src="https://resto.youzanltd.com/logo.svg"
@@ -69,13 +71,26 @@ function LoginPage() {
         </div>
         <header className="mb-5 space-y-2">
           <h1 className="text-[2rem] leading-tight font-bold tracking-tight text-link">
-            <span lang="en" className="motion-safe:sr-only">Hello,</span>
-            <span aria-hidden="true" className="hidden h-[1lh] overflow-hidden motion-safe:block">
+            <span lang="en" className="motion-safe:sr-only">
+              Hello,
+            </span>
+            <span
+              aria-hidden="true"
+              className="hidden h-[1lh] overflow-hidden motion-safe:block"
+            >
               <span className="block animate-[login-greeting_9s_ease-in-out_infinite] whitespace-nowrap">
-                <span lang="en" className="block">Hello,</span>
-                <span lang="ja" className="block">こんにちは</span>
-                <span lang="zh" className="block">您好,</span>
-                <span lang="en" className="block">Hello,</span>
+                <span lang="en" className="block">
+                  Hello,
+                </span>
+                <span lang="ja" className="block">
+                  こんにちは,
+                </span>
+                <span lang="zh" className="block">
+                  您好,
+                </span>
+                <span lang="en" className="block">
+                  Hello,
+                </span>
               </span>
             </span>
           </h1>
@@ -104,7 +119,7 @@ function LoginPage() {
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder="Username"
-                className="h-12 rounded-xl border-border bg-muted/50 pl-13"
+                className="h-13 rounded-xl border-border bg-muted/50 pl-13"
               />
             </div>
           </div>
@@ -127,7 +142,7 @@ function LoginPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="••••••••"
-                className="h-12 rounded-xl border-border bg-muted/50 pr-12 pl-13"
+                className="h-13 rounded-xl border-border bg-muted/50 pr-12 pl-13"
               />
               <Button
                 type="button"
@@ -135,7 +150,7 @@ function LoginPage() {
                 size="icon-lg"
                 disabled={busy}
                 onClick={() => setVisible((value) => !value)}
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
+                className="absolute top-1/2 right-1.5 size-10 -translate-y-1/2 text-muted-foreground"
                 aria-label={
                   visible ? "Sembunyikan password" : "Tampilkan password"
                 }
@@ -149,8 +164,8 @@ function LoginPage() {
               </Button>
             </div>
           </div>
-          <label className="flex min-h-6 w-fit cursor-pointer items-center gap-2 text-sm has-disabled:cursor-not-allowed has-disabled:opacity-50">
-            <span className="relative grid size-5 shrink-0 place-items-center">
+          <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm has-disabled:cursor-not-allowed has-disabled:opacity-50">
+            <span className="relative grid size-6 shrink-0 place-items-center">
               <input
                 type="checkbox"
                 name="rememberme"
@@ -159,8 +174,11 @@ function LoginPage() {
                 onChange={(event) => setRemember(event.target.checked)}
                 className="peer size-full cursor-inherit appearance-none rounded-md border border-muted-foreground/60 bg-card transition-colors checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring forced-colors:appearance-auto"
               />
-              <Check aria-hidden="true" strokeWidth={3}
-                className="pointer-events-none absolute size-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100 forced-colors:hidden" />
+              <Check
+                aria-hidden="true"
+                strokeWidth={3}
+                className="pointer-events-none absolute size-4 text-primary-foreground opacity-0 peer-checked:opacity-100 forced-colors:hidden"
+              />
             </span>
             Ingat saya
           </label>

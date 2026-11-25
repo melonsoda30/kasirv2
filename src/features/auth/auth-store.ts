@@ -44,6 +44,7 @@ export function isCashierEventLevel(eventLevel: string | undefined) {
 
 export interface AuthSession {
   account: Account
+  adminBranchId?: string
   cashierBranchId?: string
   token: string
   expiresAt: number
@@ -63,6 +64,41 @@ export function getCashierBranches(store: Account['store']) {
 export function getCashierBranch(session: AuthSession | null) {
   if (!session?.cashierBranchId || !isAdminAccount(session.account)) return undefined
   return getCashierBranches(session.account.store).find(({ id }) => id === session.cashierBranchId)
+}
+
+export function isAdminMode(session: AuthSession | null) {
+  return !!session && isAdminAccount(session.account) && !usesCashierMode(session)
+}
+
+const allBranches: Branch = { id: 'all', name: 'Semua cabang' }
+
+export function getBranchFilterId(branchId?: string) {
+  const id = branchId?.trim()
+  return id && id !== allBranches.id ? id : undefined
+}
+
+export function getAdminBranches(account: Account) {
+  const branches = getCashierBranches(account.store)
+  const branchId = getBranchFilterId(account.store?.branch_id)
+  if (!branches.length && branchId) branches.push({ id: branchId, name: branchId })
+  return account.store?.all_branches === true ? [allBranches, ...branches] : branches
+}
+
+export function getAdminBranch(session: AuthSession | null) {
+  if (!session?.adminBranchId || !isAdminMode(session)) return undefined
+  return getAdminBranches(session.account).find(({ id }) => id === session.adminBranchId)
+}
+
+function adminBranchPreferenceKey(account: Account) {
+  return `kasirv2.admin-branch:${JSON.stringify([account.account_id || account.account_username, account.store?.id ?? account.event_id])}`
+}
+
+export function getSuggestedAdminBranch(account: Account) {
+  const branches = getAdminBranches(account)
+  let previous: string | null = null
+  try { previous = localStorage.getItem(adminBranchPreferenceKey(account)) } catch { /* Use the account default. */ }
+  return branches.find(({ id }) => id === previous) ?? branches.find(({ id }) => id === account.store?.branch_id) ??
+    (branches.length === 1 ? branches[0] : undefined)
 }
 
 const key = 'kasirv2.auth'
@@ -85,8 +121,9 @@ function readSession(): AuthSession | null {
 export const useAuthStore = create<{
   session: AuthSession | null
   setSession: (session: AuthSession, remember: boolean) => void
+  setAdminBranch: (branchId: string) => boolean
   setCashierBranch: (branchId?: string) => boolean
-  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account' | 'cashierBranchId'>) => boolean
+  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account' | 'adminBranchId' | 'cashierBranchId'>) => boolean
   clearSession: () => void
   updateAccount: (account: Partial<Account>) => void
 }>((set, get) => ({
@@ -106,6 +143,18 @@ export const useAuthStore = create<{
     ;(remember ? localStorage : sessionStorage).setItem(key, JSON.stringify(session))
     set({ session })
   },
+  setAdminBranch: (branchId) => {
+    const current = get().session
+    if (!current || !isAdminMode(current) || !getAdminBranches(current.account).some(({ id }) => id === branchId)) return false
+    const session = { ...current, adminBranchId: branchId }
+    try {
+      const storage = localStorage.getItem(key) ? localStorage : sessionStorage
+      storage.setItem(key, JSON.stringify(session))
+    } catch { /* Keep the selection in memory when session storage is unavailable. */ }
+    try { localStorage.setItem(adminBranchPreferenceKey(current.account), branchId) } catch { /* Preferences are optional. */ }
+    set({ session })
+    return true
+  },
   setCashierBranch: (branchId) => {
     const current = get().session
     if (!current || !isAdminAccount(current.account)) return false
@@ -123,6 +172,7 @@ export const useAuthStore = create<{
     if (!session || session.token !== previousToken) return false
     setSession({
       account: session.account,
+      ...(session.adminBranchId && { adminBranchId: session.adminBranchId }),
       ...(session.cashierBranchId && { cashierBranchId: session.cashierBranchId }),
       ...tokens,
     }, !!localStorage.getItem(key))
@@ -147,7 +197,7 @@ export function getAuthSession() {
 
 export function safeRedirect(value: unknown) {
   if (typeof value !== 'string' || !value.startsWith('/') ||
-      value.startsWith('//') || /[\\\u0000-\u0020]/.test(value)) return '/'
+      value.startsWith('//') || [...value].some((character) => character <= ' ' || character === '\\')) return '/'
   try {
     const url = new URL(value, 'https://kasir.invalid')
     if (url.origin !== 'https://kasir.invalid' || url.pathname.replace(/\/+$/, '') === '/login') return '/'

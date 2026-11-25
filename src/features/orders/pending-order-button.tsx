@@ -42,7 +42,7 @@ export function PendingOrderButton({ account, order, onQueued, onShiftRequired }
         throw new Error('Pesanan berubah. Buka ulang ringkasan pesanan.')
       }
 
-      const totals = paymentTotals(order, [], [], method.fee)
+      const totals = paymentTotals(order, [], [], method)
       await savePayment({ ...totals, order, method, additionalPrices: [], discounts: [], paid: 0, change: 0 }, account, 'pending_trx', branchId)
       const current = useOrderStore.getState()
       if (current.owner === owner) {

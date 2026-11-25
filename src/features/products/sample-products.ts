@@ -23,8 +23,10 @@ export interface Product {
   store: string
   storeId?: string
   branchId?: string
+  branchName?: string
   discount: number
   discountType: string
+  useStock?: boolean
   stock: number
   description: string
   active: boolean

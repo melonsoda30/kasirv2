@@ -22,10 +22,10 @@ export const useProductStore = create<ProductState>((set) => ({
   }),
   addProduct: (product) => set((state) => ({ products: [...state.products, product] })),
   updateProduct: (product) => set((state) => ({
-    products: state.products.map((item) => item.id === product.id ? product : item),
+    products: state.products.map((item) => item.id === product.id && item.branchId === product.branchId ? product : item),
   })),
 }))
 
 useAuthStore.subscribe((state, previous) => {
-  if (state.session !== previous.session) useProductStore.setState({ products: [], categories: [] })
+  if (state.session?.account !== previous.session?.account) useProductStore.setState({ products: [], categories: [] })
 })

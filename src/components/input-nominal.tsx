@@ -10,17 +10,19 @@ export type InputNominalProps = Omit<ComponentProps<typeof Input>,
   /** Receives the unformatted numeric string ("18000"), or "" when cleared. */
   onValueChange: (value: string) => void
   ref?: Ref<HTMLInputElement>
+  decimalScale?: number
 }
 
-export function InputNominal({ value, onValueChange, ref, ...props }: InputNominalProps) {
+export function InputNominal({ value, onValueChange, ref, decimalScale = nominalInputFormat.decimalScale, ...props }: InputNominalProps) {
   return (
     <NumericFormat
       {...props}
       {...nominalInputFormat}
+      decimalScale={decimalScale}
       customInput={Input}
       getInputRef={ref}
       type="text"
-      inputMode="numeric"
+      inputMode={decimalScale > 0 ? 'decimal' : 'numeric'}
       value={value}
       valueIsNumericString
       onValueChange={(values, source) => {

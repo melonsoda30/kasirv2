@@ -140,7 +140,7 @@ export function SalePaymentEditor({
     <>
       <form
         id={formId}
-        className="drawer-body flow-panel space-y-4 p-4"
+        className="modal-body flow-panel space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (valid && method && !busy)
@@ -293,7 +293,7 @@ export function SalePaymentEditor({
             {error}
           </p>
         )}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="modal-actions">
           <Button
             type="button"
             variant="outline"

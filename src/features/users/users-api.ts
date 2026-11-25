@@ -93,7 +93,7 @@ export async function changeUser(change: UserChange) {
     }
     if (fields.is_cashier !== undefined) data.set("is_cashier", fields.is_cashier ? "1" : "0");
     const branchId = fields.branch_id?.trim();
-    if (branchId) data.set("branch_id", branchId);
+    if (branchId || (change.action === "edit_user" && branchId !== undefined)) data.set("branch_id", branchId);
     if (change.action === "add_user") {
       const { password } = change.fields;
       if (password) data.set("password", password);

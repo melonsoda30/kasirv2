@@ -1,13 +1,11 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { format } from "date-fns";
 import { TriangleAlert } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -66,7 +64,7 @@ export function LowStockReminder({ scope, products, ready }: {
 
   return (
     <Dialog open={reminderProducts.length > 0} onOpenChange={(open) => { if (!open) setReminderProducts([]); }}>
-      <DialogContent showCloseButton={false} className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)_auto]">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <TriangleAlert className="size-4 fill-warning-indicator text-status-icon-foreground" aria-hidden="true" />
@@ -76,19 +74,16 @@ export function LowStockReminder({ scope, products, ready }: {
             Periksa stok produk berikut dan isi ulang bila perlu.
           </DialogDescription>
         </DialogHeader>
-        <ul className="min-h-0 divide-y overflow-y-auto rounded-lg border">
-          {reminderProducts.map((product) => (
-            <li key={productKey(product)} className="flex items-center justify-between gap-3 px-3 py-2">
-              <span className="min-w-0 wrap-break-word font-medium">{product.title}</span>
-              <span className="shrink-0 text-muted-foreground tabular-nums">Sisa {product.stock}</span>
-            </li>
-          ))}
-        </ul>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button">Tutup</Button>
-          </DialogClose>
-        </DialogFooter>
+        <DialogBody>
+          <ul className="divide-y rounded-lg border">
+            {reminderProducts.map((product) => (
+              <li key={productKey(product)} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="min-w-0 wrap-break-word font-medium">{product.title}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">Sisa {product.stock}</span>
+              </li>
+            ))}
+          </ul>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

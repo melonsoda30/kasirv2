@@ -17,7 +17,8 @@ import {
   DrawerFooter,
 } from "@/components/ui/drawer";
 import { API_BASE_URL } from "@/lib/api";
-import { useAuthStore } from "@/features/auth/auth-store";
+import { getAdminBranch, getBranchFilterId, useAuthStore } from "@/features/auth/auth-store";
+import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
 import { canManageUsers, useUsers, userDisplayName, type UserRecord } from "./users-api";
 
 interface UserFilters {
@@ -61,7 +62,7 @@ function UserFilterDrawer({
           type="button"
           variant="outline"
           size="icon"
-          className="relative h-9 w-9"
+          className="relative size-12"
           aria-label={
             hasFilters(filters) ? "Filter pengguna, filter aktif" : "Filter pengguna"
           }
@@ -108,9 +109,7 @@ function UserFilterDrawer({
           ))}
         </DrawerBody>
         <DrawerFooter>
-          <div
-            className={cn("grid gap-2", hasFilters(draft) ? "grid-cols-2" : "grid-cols-1")}
-          >
+          <div className="modal-actions">
             {hasFilters(draft) && (
               <Button
                 type="button"
@@ -171,6 +170,7 @@ function UserCard({ user }: { user: UserRecord }) {
 
 export function UsersPage() {
   const usersQuery = useUsers();
+  const branchId = useAuthStore((state) => getBranchFilterId(getAdminBranch(state.session)?.id));
   const canManage = useAuthStore((state) => canManageUsers(state.session?.account));
   const [showTitle, setShowTitle] = useState(true);
   const [search, setSearch] = useState("");
@@ -194,6 +194,7 @@ export function UsersPage() {
   const query = search.trim().toLocaleLowerCase("id-ID");
   const users = (usersQuery.data ?? []).filter(
     (user) =>
+      (!branchId || user.user_branch_id === branchId || user.user_branch_id === "all") &&
       (filters.status === "all" || user.user_status === filters.status) &&
       (!query ||
         [
@@ -220,9 +221,10 @@ export function UsersPage() {
                   <ArrowLeft aria-hidden="true" />
                 </Link>
               </Button>
-              <h1 className="text-lg font-semibold tracking-tight">
+              <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">
                 Pengguna {usersQuery.isSuccess && `(${users.length})`}
               </h1>
+              <div className="min-w-0 max-w-[45%] empty:hidden"><AdminBranchSwitcher /></div>
             </div>
           </div>
         </div>
@@ -233,11 +235,10 @@ export function UsersPage() {
             placeholder="Cari nama, username, atau ID..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="h-9"
           />
           <UserFilterDrawer filters={filters} onSave={setFilters} />
           {canManage && (
-            <Button asChild size="icon" className="size-9 shrink-0">
+            <Button asChild size="icon" className="size-12 shrink-0">
               <Link to="/users/tambah" aria-label="Tambah pengguna" title="Tambah pengguna">
                 <Plus aria-hidden="true" />
               </Link>
@@ -247,7 +248,7 @@ export function UsersPage() {
       </header>
       <main
         id="main-content"
-        className="page-gutter min-w-0 flex-1 pt-[calc(109px+env(safe-area-inset-top)+1rem)] pb-6"
+        className="page-gutter min-w-0 flex-1 pt-[calc(121px+env(safe-area-inset-top)+1rem)] pb-6"
       >
         {usersQuery.isPending && (
           <SkeletonGroup label="Memuat daftar pengguna">

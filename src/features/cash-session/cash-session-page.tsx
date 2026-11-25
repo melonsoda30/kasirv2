@@ -4,7 +4,6 @@ import { format } from "date-fns";
 import { SlidersHorizontal } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
-import { cn } from "cn";
 import { PageLayout } from "@/components/page-layout";
 import { DatePickerRange } from "@/components/date-picker-range";
 import { Button } from "@/components/ui/button";
@@ -16,8 +15,8 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Drawer,
-  DrawerClose,
   DrawerBody,
+  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -33,6 +32,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   getAccountBranches,
+  getAdminBranch,
+  getBranchFilterId,
   isAdminAccount,
   useAuthStore,
 } from "@/features/auth/auth-store";
@@ -47,6 +48,7 @@ import {
   type CashSessionReportTransaction,
 } from "./cash-session-api";
 import { CashSessionAmounts, CashSessionControl } from "./cash-session-control";
+import { CashSessionExportDrawer } from "./cash-session-export-drawer";
 import {
   cashSessionScope,
   refreshCashSessionData,
@@ -78,12 +80,16 @@ function cashDifference(session: CashSession) {
   return `Uang ${label} ${formatCurrency(Math.abs(difference))}`;
 }
 
-function ShiftTransactionRow({ transaction, username }: {
+function ShiftTransactionRow({
+  transaction,
+  username,
+}: {
   transaction: CashSessionReportTransaction;
   username?: string;
 }) {
   const { id_trx, date, total, status, payment_method } = transaction;
-  const needsMethod = !payment_method && status.trim().toLowerCase() !== "pending";
+  const needsMethod =
+    !payment_method && status.trim().toLowerCase() !== "pending";
   const detail = useQuery({
     queryKey: ["transactions", "detail", username, id_trx],
     queryFn: ({ signal }) => fetchTransactionDetail(id_trx, signal),
@@ -98,11 +104,19 @@ function ShiftTransactionRow({ transaction, username }: {
     <li className="flex justify-between gap-2 py-2">
       <div className="min-w-0 break-words">
         {id_trx}
-        <p className="text-xs text-muted-foreground">{date} ({status})</p>
+        <p className="text-xs text-muted-foreground">
+          {date} ({status})
+        </p>
       </div>
       <div className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-1.5 text-right">
-        {needsMethod && detail.isLoading && <Skeleton className="inline-block h-3 w-12 self-center" />}
-        {methodLabel && <span className="wrap-anywhere text-xs text-muted-foreground">({methodLabel})</span>}
+        {needsMethod && detail.isLoading && (
+          <Skeleton className="inline-block h-3 w-12 self-center" />
+        )}
+        {methodLabel && (
+          <span className="wrap-anywhere text-xs text-muted-foreground">
+            ({methodLabel})
+          </span>
+        )}
         <span className="shrink-0">{formatCurrency(total)}</span>
       </div>
     </li>
@@ -160,7 +174,7 @@ function CashSessionFilterDrawer({
         <Button
           type="button"
           variant="outline"
-          size="icon"
+          size="icon-lg"
           className="relative"
           aria-label={
             active ? "Filter riwayat, filter aktif" : "Filter riwayat"
@@ -214,7 +228,7 @@ function CashSessionFilterDrawer({
           ))}
         </DrawerBody>
         <DrawerFooter>
-          <div className={cn("grid gap-2", hasDraftFilters && "grid-cols-2")}>
+          <div className="modal-actions">
             {hasDraftFilters && (
               <Button
                 type="button"
@@ -248,6 +262,8 @@ export function CashSessionPage({
   initialSessionId?: string;
 }) {
   const account = useAuthStore((state) => state.session?.account);
+  const adminBranchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
+  const scopedBranchId = getBranchFilterId(adminBranchId);
   const current = useCashSession();
   const queryClient = useQueryClient();
   const admin = isAdminAccount(account);
@@ -266,11 +282,16 @@ export function CashSessionPage({
         startDate: format(dateRange.from, "yyyy-MM-dd"),
         endDate: format(dateRange.to, "yyyy-MM-dd"),
       }),
-    ...(admin && { branch_id: branch, user: cashier }),
+    ...(admin && { branch_id: adminBranchId ?? branch, user: cashier }),
   };
   const list = useQuery({
     queryKey: ["cash-session", "list", ...scope, filters],
-    queryFn: ({ signal }) => fetchCashSessions(filters, signal),
+    queryFn: async ({ signal }) => {
+      const data = await fetchCashSessions(filters, signal);
+      if (!scopedBranchId) return data;
+      const sessions = data.sessions.filter((session) => session.branch_id === scopedBranchId);
+      return { sessions, count: sessions.length };
+    },
     enabled: !!current.data?.use_session,
     meta: { toast: false },
   });
@@ -281,8 +302,12 @@ export function CashSessionPage({
     meta: { toast: false },
   });
   const report = useQuery({
-    queryKey: ["cash-session", "report", ...scope, selected],
-    queryFn: ({ signal }) => fetchCashSessionReport(selected!, signal),
+    queryKey: ["cash-session", "report", ...scope, adminBranchId, selected],
+    queryFn: async ({ signal }) => {
+      const data = await fetchCashSessionReport(selected!, signal);
+      if (scopedBranchId && data.session.branch_id !== scopedBranchId) throw new Error("Shift ini berasal dari cabang lain.");
+      return data;
+    },
     enabled: !!selected && !!current.data?.use_session,
     meta: { toast: false },
   });
@@ -313,7 +338,11 @@ export function CashSessionPage({
   });
 
   const session = report.data?.session;
-  const sessionDifference = session?.status === "closed" ? cashDifference(session) : undefined;
+  const sessionDifference =
+    session?.status === "closed" ? cashDifference(session) : undefined;
+  const sessionOpenNotes = session?.notes.trim();
+  const sessionCloseNotes =
+    session?.status === "closed" ? session.close_notes.trim() : "";
   const canForceClose = admin && session?.status === "open";
   const branchName = (id: string) =>
     branches.find((branch) => branch.id === id)?.name || id;
@@ -336,30 +365,33 @@ export function CashSessionPage({
               <h2 id="cash-session-history" className="font-semibold">
                 Riwayat shift
               </h2>
-              <CashSessionFilterDrawer
-                filters={appliedFilters}
-                onSave={setAppliedFilters}
-                shifts={current.data.shift_list
-                  .filter(({ code }) => code !== "none")
-                  .map(({ code, title }) => ({ value: code, label: title }))}
-                branches={
-                  admin
-                    ? branches.map(({ id, name }) => ({
-                        value: id,
-                        label: name,
-                      }))
-                    : undefined
-                }
-                cashiers={
-                  admin
-                    ? (users.data ?? []).map((user) => ({
-                        value: user.user_id,
-                        label: userDisplayName(user),
-                      }))
-                    : undefined
-                }
-                cashiersLoading={users.isLoading}
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                <CashSessionExportDrawer dateRange={dateRange} />
+                <CashSessionFilterDrawer
+                  filters={appliedFilters}
+                  onSave={setAppliedFilters}
+                  shifts={current.data.shift_list
+                    .filter(({ code }) => code !== "none")
+                    .map(({ code, title }) => ({ value: code, label: title }))}
+                  branches={
+                    admin && !adminBranchId
+                      ? branches.map(({ id, name }) => ({
+                          value: id,
+                          label: name,
+                        }))
+                      : undefined
+                  }
+                  cashiers={
+                    admin
+                      ? (users.data ?? []).map((user) => ({
+                          value: user.user_id,
+                          label: userDisplayName(user),
+                        }))
+                      : undefined
+                  }
+                  cashiersLoading={users.isLoading}
+                />
+              </div>
             </div>
             {list.isPending && (
               <SkeletonGroup label="Memuat riwayat shift">
@@ -405,12 +437,16 @@ export function CashSessionPage({
                         >
                           {row.status === "open" && "Terbuka"}
                           {row.status === "closed" && "Selesai"}
-                          {row.status === "closed" && row.close_type === "force" && row.closed_by_name.trim() &&
+                          {row.status === "closed" &&
+                            row.close_type === "force" &&
+                            row.closed_by_name.trim() &&
                             ` (${row.closed_by_name.trim()})`}
                         </StatusBadge>
                       </span>
                       <span className="block text-sm font-medium tabular-nums">
-                        {row.status === "closed" ? cashDifference(row) : formatCurrency(row.omzet)}
+                        {row.status === "closed"
+                          ? cashDifference(row)
+                          : formatCurrency(row.omzet)}
                       </span>
                       <span className="block break-words border-t pt-2 text-xs text-muted-foreground">
                         {row.user_name} ({branchName(row.branch_id)})
@@ -444,9 +480,7 @@ export function CashSessionPage({
           aria-describedby={session ? detailDescriptionId : undefined}
         >
           <DrawerHeader>
-            <DrawerTitle>
-              {force ? "Tutup paksa shift" : "Detail shift"}
-            </DrawerTitle>
+            <DrawerTitle>{force ? "Tutup shift" : "Detail shift"}</DrawerTitle>
             {session && (
               <DrawerDescription id={detailDescriptionId}>
                 {session.shift_title} ({session.shift_date})
@@ -526,20 +560,46 @@ export function CashSessionPage({
                   </form>
                 ) : (
                   <>
-                    {session.status === "closed" && (sessionDifference || session.close_notes) && (
-                      <div className="space-y-1">
+                    {session.status === "closed" && (
+                      <dl className="bento-surface space-y-2 p-3">
+                        <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
+                          <dt>Saldo tutup buku</dt>
+                          <dd className="font-medium tabular-nums">
+                            {session.closing_cash == null
+                              ? "Tidak dicatat"
+                              : formatCurrency(session.closing_cash)}
+                          </dd>
+                        </div>
                         {sessionDifference && (
-                          <p>
-                            {sessionDifference}
-                            {session.difference_exceeded && " (di luar toleransi)"}
-                          </p>
+                          <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 border-t pt-2">
+                            <dt>Selisih</dt>
+                            <dd className="font-medium tabular-nums">
+                              {sessionDifference}
+                              {session.difference_exceeded && (
+                                <span className="block text-xs text-destructive">
+                                  Di luar toleransi
+                                </span>
+                              )}
+                            </dd>
+                          </div>
                         )}
-                        {session.close_notes && (
-                          <p className="whitespace-pre-wrap break-words">
-                            {session.close_notes}
-                          </p>
-                        )}
-                      </div>
+                      </dl>
+                    )}
+                    {sessionOpenNotes && (
+                      <section className="bento-surface space-y-1 p-3">
+                        <h3 className="font-medium">Catatan pembukaan</h3>
+                        <p className="whitespace-pre-wrap wrap-break-words">
+                          {sessionOpenNotes}
+                        </p>
+                      </section>
+                    )}
+                    {sessionCloseNotes && (
+                      <section className="bento-surface space-y-1 p-3">
+                        <h3 className="font-medium">Catatan penutupan</h3>
+                        <p className="whitespace-pre-wrap wrap-break-words">
+                          {sessionCloseNotes}
+                        </p>
+                      </section>
                     )}
                     {!!report.data?.by_method.length && (
                       <div className="space-y-2">
@@ -566,8 +626,11 @@ export function CashSessionPage({
                         <h3 className="font-semibold">Transaksi</h3>
                         <ul className="divide-y">
                           {report.data.transactions.map((transaction) => (
-                            <ShiftTransactionRow key={transaction.id_trx} transaction={transaction}
-                              username={account?.account_username} />
+                            <ShiftTransactionRow
+                              key={transaction.id_trx}
+                              transaction={transaction}
+                              username={account?.account_username}
+                            />
                           ))}
                         </ul>
                       </div>
@@ -579,7 +642,7 @@ export function CashSessionPage({
           </DrawerBody>
           <DrawerFooter>
             {force && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="modal-actions">
                 <Button
                   type="button"
                   variant="outline"
@@ -597,16 +660,14 @@ export function CashSessionPage({
                     !canForceClose || !closeNotes.trim() || forceClose.isPending
                   }
                 >
-                  Tutup paksa
+                  Tutup Shift
                 </Button>
               </div>
             )}
             {!force && (
-              <div className={cn("grid gap-2", canForceClose && "grid-cols-2")}>
+              <div className="modal-actions">
                 <DrawerClose asChild>
-                  <Button type="button" variant="outline">
-                    Tutup
-                  </Button>
+                  <Button type="button" variant="outline">Tutup</Button>
                 </DrawerClose>
                 {canForceClose && (
                   <Button
@@ -619,7 +680,7 @@ export function CashSessionPage({
                       setForce(true);
                     }}
                   >
-                    Tutup paksa
+                    Tutup Shift
                   </Button>
                 )}
               </div>

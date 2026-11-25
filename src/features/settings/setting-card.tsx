@@ -102,21 +102,20 @@ export function SettingCard({
         </DrawerHeader>
         {showEditor && (
           <>
-            <form id={formId} onSubmit={save} className="drawer-body">
+            <form id={formId} onSubmit={save} className="modal-body">
               <fieldset disabled={pending} className="min-w-0">{open && children}</fieldset>
             </form>
-            <DrawerFooter className="flex-row">
+            <DrawerFooter actions>
               {(active || editWhenInactive) && <Button
                 type="button"
                 variant="outline"
-                className="flex-1"
                 disabled={pending}
                 loading={pendingAction === "toggle"}
                 onClick={() => void persist(!active)}
               >
                 {active ? "Nonaktifkan" : "Aktifkan"}
               </Button>}
-              <Button type="submit" form={formId} className="flex-1" disabled={pending || saveDisabled} loading={pendingAction === "save"}>
+              <Button type="submit" form={formId} disabled={pending || saveDisabled} loading={pendingAction === "save"}>
                 {saveLabel}
               </Button>
             </DrawerFooter>

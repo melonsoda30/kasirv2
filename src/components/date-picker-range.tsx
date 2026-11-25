@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import { CalendarDays } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { id as indonesia } from "react-day-picker/locale";
@@ -7,8 +6,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogClose,
   DialogTrigger,
   DialogContent,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -55,8 +58,9 @@ export function DatePickerRange({
       id={id}
       type="button"
       variant="outline"
+      size="lg"
       disabled={disabled}
-      className="w-full justify-start font-normal"
+      className="w-full min-w-0 justify-start text-left text-base font-normal whitespace-normal"
     >
       <CalendarDays aria-hidden="true" />
       {value?.from ? formatDateRange(value) : placeholder}
@@ -72,13 +76,6 @@ export function DatePickerRange({
       defaultMonth={value?.from}
       numberOfMonths={1}
       className="mx-auto"
-      style={
-        type === "modal"
-          ? ({
-              "--cell-size": "clamp(2rem, calc((100vw - 5rem) / 7), 3rem)",
-            } as CSSProperties)
-          : undefined
-      }
       onSelect={(_range, date) => {
         // DayPicker may fill both endpoints on the first click; require two selections.
         const next = selectRangeDate(draft, date);
@@ -97,44 +94,49 @@ export function DatePickerRange({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         {!controlledDialog && <DialogTrigger asChild>{trigger}</DialogTrigger>}
         <DialogContent
-          showCloseButton={false}
+          wide
           aria-describedby={undefined}
-          className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
           onCloseAutoFocus={controlledDialog && id ? (event) => {
             event.preventDefault();
             document.getElementById(id)?.focus();
           } : undefined}
         >
-          <DialogTitle className="sr-only">Pilih rentang tanggal</DialogTitle>
-          <dl
-            aria-live="polite"
-            className="grid grid-cols-2 gap-4 border-b pb-4"
-          >
-            <div className="space-y-1">
-              <dt className="text-xs text-muted-foreground">Tanggal mulai</dt>
-              <dd className="text-sm font-medium">
-                {draft?.from ? formatDate(draft.from) : "Pilih tanggal"}
-              </dd>
-            </div>
-            <div className="space-y-1">
-              <dt className="text-xs text-muted-foreground">Tanggal selesai</dt>
-              <dd className="text-sm font-medium">
-                {draft?.to ? formatDate(draft.to) : "Pilih tanggal"}
-              </dd>
-            </div>
-          </dl>
-          {picker}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!draft?.from && !value?.from}
-            onClick={() => {
-              onChange(undefined);
-              handleOpenChange(false);
-            }}
-          >
-            Hapus
-          </Button>
+          <DialogHeader>
+            <DialogTitle>Pilih rentang tanggal</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <dl aria-live="polite" className="grid grid-cols-2 gap-4 border-b pb-3">
+              <div className="space-y-1">
+                <dt className="text-xs text-muted-foreground">Tanggal mulai</dt>
+                <dd className="text-sm font-medium">
+                  {draft?.from ? formatDate(draft.from) : "Pilih tanggal"}
+                </dd>
+              </div>
+              <div className="space-y-1">
+                <dt className="text-xs text-muted-foreground">Tanggal selesai</dt>
+                <dd className="text-sm font-medium">
+                  {draft?.to ? formatDate(draft.to) : "Pilih tanggal"}
+                </dd>
+              </div>
+            </dl>
+            {picker}
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Batal</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!draft?.from && !value?.from}
+              onClick={() => {
+                onChange(undefined);
+                handleOpenChange(false);
+              }}
+            >
+              Hapus pilihan
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     );

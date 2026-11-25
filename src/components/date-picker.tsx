@@ -3,7 +3,7 @@ import { CalendarDays } from 'lucide-react'
 import { id as indonesia } from 'react-day-picker/locale'
 import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogTrigger, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { formatDate } from '@/lib/date'
 
@@ -21,7 +21,7 @@ export function DatePicker({ id, type = 'default', value, onChange, disabled = f
   placeholder = 'Pilih tanggal' }: DatePickerProps) {
   const [open, setOpen] = useState(false)
   const trigger = (
-    <Button id={id} type="button" variant="outline" disabled={disabled} className="w-full justify-start font-normal">
+    <Button id={id} type="button" variant="outline" size="lg" disabled={disabled} className="w-full min-w-0 justify-start text-left text-base font-normal whitespace-normal">
       <CalendarDays aria-hidden="true" />{value ? formatDate(value) : placeholder}
     </Button>
   )
@@ -32,9 +32,16 @@ export function DatePicker({ id, type = 'default', value, onChange, disabled = f
   if (type === 'modal') return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent showCloseButton={false} aria-describedby={undefined} className="max-h-[90dvh] overflow-y-auto">
-        <DialogTitle className="sr-only">Pilih tanggal</DialogTitle>
-        {picker}
+      <DialogContent wide aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Pilih tanggal</DialogTitle>
+        </DialogHeader>
+        <DialogBody>{picker}</DialogBody>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">Batal</Button>
+          </DialogClose>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

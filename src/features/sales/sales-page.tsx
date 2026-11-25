@@ -9,8 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { useProductStore } from "@/features/products/product-store";
+import { useProductCatalog } from "@/features/products/use-product-catalog";
+import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
 import {
   getAccountBranches,
+  getAdminBranch,
   getCashierBranch,
   isAdminAccount,
   useAuthStore,
@@ -20,6 +23,7 @@ import { CashSessionControl } from "@/features/cash-session/cash-session-control
 import { usePaymentMethods } from "@/features/orders/payment-methods";
 import { useUsers, userDisplayName } from "@/features/users/users-api";
 import { SalesFilterDrawer } from "./sales-filter-drawer";
+import { SalesReportDrawer } from "./sales-report-drawer";
 import { defaultSalesFilters, salesFilterChips } from "./sales-filters";
 import { fetchTransactions, transactionListParams } from "./sales-api";
 import { SalesSummaryCards } from "./sales-summary-cards";
@@ -64,9 +68,10 @@ export function SalesPage({
   const isAdmin = isAdminAccount(account);
   const cashierMode = useAuthStore((state) => usesCashierMode(state.session));
   const cashierBranchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
+  const adminBranchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
   const branchId = cashierBranchId ?? account?.store?.branch_id;
   const isCashierTransactions = !userScope && cashierMode;
-  const hideStore = !!userScope || !isAdmin || isCashierTransactions;
+  const hideStore = !!adminBranchId || !!userScope || !isAdmin || isCashierTransactions;
   const users = useUsers(isAdmin && !userScope);
   const paymentMethods = usePaymentMethods(!!account, undefined, "all");
   const paymentOptions = (paymentMethods.data ?? []).map(({ code, title }) => ({ value: code, label: title }));
@@ -86,9 +91,9 @@ export function SalesPage({
     ? userScope.branchId || branchId || "all"
     : filters.store;
   const accountBranch = branchId ?? (isAdmin ? "all" : "");
-  const visibleBranch = isAdmin && !isCashierTransactions ? adminBranch : accountBranch;
+  const visibleBranch = adminBranchId ?? (isAdmin && !isCashierTransactions ? adminBranch : accountBranch);
   const transactionFilters = {
-    branchId: cashierBranchId,
+    branchId: cashierBranchId ?? adminBranchId,
     cashier: userScope?.id ?? filters.cashier,
     dateRange: filters.dateRange,
     paymentMethod: filters.paymentMethod,
@@ -103,7 +108,9 @@ export function SalesPage({
       fetchTransactions(transactionFilters, debouncedSearch, signal),
     enabled: !!account && (isAdmin || !!branchId),
   });
-  const products = useProductStore((state) => state.products);
+  const cachedProducts = useProductStore((state) => state.products);
+  const catalog = useProductCatalog(adminBranchId, !!adminBranchId);
+  const products = adminBranchId ? catalog.data ?? [] : cachedProducts;
   const sales = transactions.data?.sales ?? [];
   const requestedBranch = transactionFilters.branchId;
   const allowUnknownBranch =
@@ -139,7 +146,7 @@ export function SalesPage({
     : undefined;
   const toolbar = (
     <>
-      <div className="page-gutter flex h-9 gap-2">
+      <div className="page-gutter flex h-12 gap-2">
         <Input
           type="search"
           aria-label={searchLabel}
@@ -198,7 +205,8 @@ export function SalesPage({
       {!userScope && (
         <header className="sales-toolbar sticky top-0 z-20 w-full border-b bg-background pt-[env(safe-area-inset-top)] pb-3">
           <div className="page-gutter flex h-12 items-center gap-2">
-            <h1 className="flex-1 text-lg font-semibold">{title}</h1>
+            <h1 className="min-w-0 flex-1 text-lg font-semibold">{title}</h1>
+            {adminBranchId && <div className="min-w-0 max-w-[45%]"><AdminBranchSwitcher /></div>}
             {isCashierTransactions && <CashSessionControl presentation="popover" />}
           </div>
           {toolbar}
@@ -208,8 +216,8 @@ export function SalesPage({
         id="main-content"
         className={cn(
           "page-gutter min-w-0 flex-1 pb-6",
-          userScope && hasChips && "pt-[calc(165px+env(safe-area-inset-top)+1rem)]",
-          userScope && !hasChips && "pt-[calc(109px+env(safe-area-inset-top)+1rem)]",
+          userScope && hasChips && "pt-[calc(177px+env(safe-area-inset-top)+1rem)]",
+          userScope && !hasChips && "pt-[calc(121px+env(safe-area-inset-top)+1rem)]",
           !userScope && "pt-4",
         )}
       >
@@ -281,7 +289,7 @@ export function SalesPage({
                 <SalesSummaryCards sales={visibleSales} summary={summary} />
               </Tabs.Panel>
               <Tabs.Panel value="transactions" className="flow-panel">
-                <SalesTransactionList sales={visibleSales} />
+                <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} />
                 {!visibleSales.length && (
                   <p className="py-12 text-center text-sm text-muted-foreground">
                     Tidak ada transaksi untuk pengguna dan filter ini.
@@ -293,7 +301,7 @@ export function SalesPage({
           {!missingBranch && transactions.isSuccess && !userScope && (
             <>
               <SalesSummaryCards sales={visibleSales} summary={summary} />
-              <SalesTransactionList sales={visibleSales} />
+              <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} headerAction={<SalesReportDrawer />} />
               {visibleSales.length === 0 && (
                 <div className="py-16 text-center">
                   <h2 className="text-sm font-medium">

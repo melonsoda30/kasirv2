@@ -7,7 +7,8 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useEffect } from 'react';
-import { getAuthSession, isAdminAccount, isCashierEventLevel, useAuthStore } from '@/features/auth/auth-store';
+import { getAdminBranch, getAuthSession, isAdminAccount, isAdminMode, isCashierEventLevel, useAuthStore } from '@/features/auth/auth-store';
+import { AdminBranchSelection } from '@/features/auth/admin-branch-drawer';
 import type { QueryClient } from "@tanstack/react-query";
 import { MobileLayout } from "../components/mobile-layout";
 import { Button } from "../components/ui/button";
@@ -81,5 +82,8 @@ function RootLayout() {
     return () => { window.clearInterval(timer); window.removeEventListener('focus', check) }
   }, [session])
   if (pathname === '/login') return <Outlet />
+  if (session && isAdminMode(session) && !getAdminBranch(session)) {
+    return <MobileLayout showBottomNav={false}><AdminBranchSelection key={session.account.account_id} account={session.account} /></MobileLayout>
+  }
   return session ? <MobileLayout showBottomNav={!isPayment}><Outlet /></MobileLayout> : null
 }

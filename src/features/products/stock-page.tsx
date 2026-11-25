@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { SkeletonImage } from "@/components/ui/skeleton-image";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { useAuthStore } from "@/features/auth/auth-store";
+import { getAccountBranches, getAdminBranch, useAuthStore } from "@/features/auth/auth-store";
 import { fetchProductStock } from "./stock-api";
 import { StockDrawer } from "./stock-drawer";
 import { isLowStockQuantity } from "./product-stock";
@@ -29,17 +29,16 @@ function StockQuantity({ quantity }: { quantity: number }) {
 
 export function StockPage() {
   const accountId = useAuthStore((state) => state.session?.account.account_id);
+  const branchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
+  const store = useAuthStore((state) => state.session?.account.store);
   const stock = useQuery({
-    queryKey: ["products", "stock", accountId],
-    queryFn: ({ signal }) => fetchProductStock(signal),
+    queryKey: ["products", "stock", accountId, branchId],
+    queryFn: ({ signal }) => fetchProductStock(signal, branchId),
     meta: { toast: false },
   });
-  const catalog = useProductCatalog();
-  const imagesBySku = new Map(
-    catalog.data
-      ?.filter((product) => product.photo)
-      .map((product) => [product.id, product.photo]),
-  );
+  const catalog = useProductCatalog(branchId);
+  const productsBySku = new Map(catalog.data?.map((product) => [product.id, product]));
+  const branchNames = new Map(getAccountBranches(store).map(({ id, name }) => [id, name]));
 
   return (
     <PageLayout title="Stok" wide>
@@ -66,25 +65,32 @@ export function StockPage() {
       )}
       {!!stock.data?.length && (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {stock.data.map((item) => (
-            <li
-              key={JSON.stringify([
-                item.store_id,
-                item.branch_id,
-                item.product_sku,
-              ])}
-            >
-              <StockDrawer item={item}>
-                <StockImage src={imagesBySku.get(item.product_sku) ?? ""} />
-                <span className="min-w-0">
-                  <span className="block font-medium break-words">
-                    {item.product_name}
+          {stock.data.map((item) => {
+            const product = productsBySku.get(item.product_sku);
+            const branchName = branchId === "all"
+              ? item.branch_name?.trim() || product?.branchName || branchNames.get(item.branch_id) || item.branch_id
+              : undefined;
+            return (
+              <li
+                key={JSON.stringify([
+                  item.store_id,
+                  item.branch_id,
+                  item.product_sku,
+                ])}
+              >
+                <StockDrawer item={item} branchName={branchName}>
+                  <StockImage src={product?.photo ?? ""} />
+                  <span className="min-w-0">
+                    <span className="block font-medium break-words">
+                      {item.product_name}
+                    </span>
+                    {branchName && <span className="block wrap-anywhere text-xs text-muted-foreground">{branchName}</span>}
+                    <StockQuantity quantity={item.quantity} />
                   </span>
-                  <StockQuantity quantity={item.quantity} />
-                </span>
-              </StockDrawer>
-            </li>
-          ))}
+                </StockDrawer>
+              </li>
+            );
+          })}
         </ul>
       )}
     </PageLayout>

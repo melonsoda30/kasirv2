@@ -22,6 +22,7 @@ const accessOptions = [
   { value: "admin", label: "Admin" },
   { value: "kasir", label: "Kasir" },
 ];
+const accessLevels: Record<string, string> = { admin: "Administrator", kasir: "Kasir" };
 
 function BranchField({ store, value, onChange, disabled, editing = false }: {
   store: NonNullable<Account["store"]>;
@@ -115,22 +116,21 @@ export function UserForm({ user, change, close }: {
     const values: UserFields = {};
     for (const field of textFields) {
       const value = String(form.get(field) ?? "").trim();
-      if (value !== initial[field].trim()) values[field] = value;
+      if (user || value) values[field] = value;
     }
-    if (access && access !== initial.access) {
+    if (user && (!access || access === initial.access)) {
+      values.level_user = user.user_level?.trim() || accessLevels[initial.access] || user.user_level_slug || "";
+      values.is_cashier = user.is_cashier ?? (initial.access === "kasir");
+    } else if (access) {
       const isCashier = access === "kasir";
-      values.level_user = isCashier ? "Kasir" : "Administrator";
+      values.level_user = accessLevels[access];
       if (user || isCashier) values.is_cashier = isCashier;
     }
     if (image) values.img = image;
 
     setInvalidField(null);
     if (user) {
-      if (canChooseBranch && branchId && branchId !== initial.branchId) values.branch_id = branchId;
-      if (!Object.keys(values).length) {
-        close();
-        return;
-      }
+      values.branch_id = branchId || initial.branchId;
       change.mutate({ action: "edit_user", userId: user.user_id, fields: values }, { onSuccess: close });
     } else {
       const password = String(form.get("password") ?? "");
@@ -146,7 +146,7 @@ export function UserForm({ user, change, close }: {
 
   return (
     <>
-      <form id={formId} onSubmit={submit} className={user ? "drawer-body" : "pb-4"} autoComplete="off">
+      <form id={formId} onSubmit={submit} className={user ? "modal-body" : "pb-4"} autoComplete="off">
         <fieldset disabled={change.isPending} className="min-w-0 space-y-4">
           <legend className="mb-3 text-sm font-semibold text-muted-foreground">Akun &amp; Akses</legend>
           <div className="space-y-2">
@@ -211,9 +211,11 @@ export function UserForm({ user, change, close }: {
           <p role="alert" className="mt-4 text-sm text-destructive">{change.error.message}</p>
         )}
       </form>
-      <Footer className={cn("grid grid-cols-2 gap-2", !user && "border-t pt-4")}>
-        <Button variant="outline" type="button" disabled={change.isPending} onClick={close}>Batal</Button>
-        <Button type="submit" form={formId} disabled={upload.busy || !!upload.error} loading={change.isPending}>Simpan</Button>
+      <Footer className={cn(!user && "border-t pt-4")}>
+        <div className={user ? "modal-actions" : "grid grid-cols-2 gap-2"}>
+          <Button variant="outline" type="button" disabled={change.isPending} onClick={close}>Batal</Button>
+          <Button type="submit" form={formId} disabled={upload.busy || !!upload.error} loading={change.isPending}>Simpan</Button>
+        </div>
       </Footer>
     </>
   );

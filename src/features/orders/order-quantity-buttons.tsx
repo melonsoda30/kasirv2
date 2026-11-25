@@ -1,6 +1,7 @@
 import { Minus, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { availableProductStock } from '@/features/products/product-stock'
 import type { Product } from '@/features/products/sample-products'
 import { useOrderStore } from './order-store'
 import type { OrderLine } from './order-store'
@@ -22,7 +23,7 @@ export function OrderQuantityButtons({ orderId, item, catalogProduct }: { orderI
   }
 
   return <QuantityButtons title={product.title} quantity={item.quantity}
-    canIncrease={product.active && reserved < product.stock} onChange={change} />
+    canIncrease={product.active && item.quantity < Number.MAX_SAFE_INTEGER && availableProductStock(product, reserved) > 0} onChange={change} />
 }
 
 export function QuantityButtons({ title, quantity, canIncrease, disabled, onChange }: {

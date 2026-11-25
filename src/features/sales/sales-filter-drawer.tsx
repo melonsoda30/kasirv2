@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonGroup } from "@/components/ui/skeleton";
 import { SelectCombobox } from "@/components/select-combobox";
@@ -85,7 +84,7 @@ export function SalesFilterDrawer({
           type="button"
           variant="outline"
           size="icon"
-          className="relative"
+          className="relative size-12"
           aria-label={
             active ? "Filter penjualan, filter aktif" : "Filter penjualan"
           }
@@ -103,7 +102,7 @@ export function SalesFilterDrawer({
             Pilih filter lalu simpan untuk menerapkan.
           </DrawerDescription> */}
         </DrawerHeader>
-        <DrawerBody className="space-y-5 p-4">
+        <DrawerBody className="space-y-5">
           <div className="space-y-2">
             <label htmlFor="sales-date-range" className="text-sm font-medium">
               Rentang tanggal
@@ -174,7 +173,7 @@ export function SalesFilterDrawer({
           ))}
         </DrawerBody>
         <DrawerFooter>
-          <div className={cn("grid gap-2", hasDraftFilters ? "grid-cols-2" : "grid-cols-1")}>
+          <div className="modal-actions">
             {hasDraftFilters && (
               <Button
                 type="button"

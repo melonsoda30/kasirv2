@@ -5,6 +5,7 @@ import type { LinkProps } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
+import { AdminBranchSwitcher } from '@/features/auth/admin-branch-drawer'
 
 export function CollapsiblePageHeader({ title, backTo, children }: {
   title: string; backTo: LinkProps['to']; children: ReactNode
@@ -31,7 +32,8 @@ export function CollapsiblePageHeader({ title, backTo, children }: {
         <div className="overflow-hidden" inert={!showTitle}>
           <div className="flex h-12 items-center gap-2 px-4">
             <Button asChild type="button" variant="ghost" size="icon"><Link to={backTo} aria-label="Kembali"><ArrowLeft aria-hidden="true" /></Link></Button>
-            <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{title}</h1>
+            <div className="min-w-0 max-w-[45%] empty:hidden"><AdminBranchSwitcher /></div>
           </div>
         </div>
       </div>

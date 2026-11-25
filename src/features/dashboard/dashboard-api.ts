@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { z } from "zod";
-import type { Account } from "@/features/auth/auth-store";
+import { getBranchFilterId, type Account } from "@/features/auth/auth-store";
 import { isEmptyListResponse, request } from "@/lib/api";
 
 const amount = z.union([z.number(), z.string().trim().min(1)]).pipe(z.coerce.number());
@@ -13,14 +13,87 @@ const series = z.object({
   borderWidth: z.number().positive().optional(),
 });
 const chart = z.object({ labels: z.array(z.string()), datasets: z.array(series) });
+const periodValue = z.enum(["today", "week", "month", "year", "range"]);
+const granularity = z.enum(["day", "month"]);
 const periodMetadata = {
-  period: z.enum(["today", "week", "month", "year", "range"]),
-  granularity: z.enum(["day", "month"]),
+  period: periodValue,
+  granularity,
   start_date: z.iso.date(),
   end_date: z.iso.date(),
 };
+const sessionSummary = z.object({
+  use_session: z.boolean(),
+  mode: z.string(),
+  date: z.string(),
+  sessions: z.array(z.unknown()),
+  count: amount,
+  open_count: amount,
+  total_omzet: amount,
+  total_cash_in: amount,
+  total_difference: amount,
+  exceeded_count: amount,
+  cash_tolerance: amount,
+}).or(z.object({ mode: z.literal("none"), use_session: z.literal(false) }));
+
+const metric = z.object({ value: amount, previous: amount, grow: z.string() });
+const identifier = z.union([z.string(), z.number()]).transform(String);
+const list = <T extends z.ZodType>(row: T) => z.object({ data: z.array(row) });
+const summary = z.object({
+  period: z.object({
+    period: periodValue,
+    start_date: z.iso.date(),
+    end_date: z.iso.date(),
+    previous_start_date: z.iso.date(),
+    previous_end_date: z.iso.date(),
+  }),
+  kpi: z.object({ revenue: metric, trx_count: metric, items_sold: metric, aov: metric }).optional(),
+  revenue: chart.extend({
+    chart_start_date: z.iso.date(),
+    chart_end_date: z.iso.date(),
+    chart_granularity: granularity,
+  }).optional(),
+  top_product: list(z.object({
+    product_id: identifier,
+    product_name: z.string(),
+    product_img: z.string().nullish(),
+    branch_id: identifier.nullish(),
+    branch_name: z.string().trim().nullish(),
+    qty: amount,
+    revenue: amount,
+  })).optional(),
+  top_kasir: list(z.object({
+    user_id: identifier,
+    name: z.string(),
+    foto: z.string().nullish(),
+    revenue: amount,
+  })).optional(),
+  top_branch: list(z.object({
+    branch_id: identifier,
+    branch_name: z.string(),
+    revenue: amount,
+    share: amount,
+  })).optional(),
+  payment_mix: list(z.object({
+    method: z.string(),
+    trx_count: amount,
+    revenue: amount,
+    fee_total: amount,
+  })).optional(),
+  peak_hour: list(z.object({
+    hour: amount.pipe(z.number().int().min(0).max(23)),
+    trx_count: amount,
+    revenue: amount,
+  })).optional(),
+  category_mix: list(z.object({ category: z.string(), qty: amount, revenue: amount })).optional(),
+  session_summary: sessionSummary.optional(),
+  meta: z.object({
+    available: z.array(z.string()),
+    hidden: z.array(z.object({ key: z.string(), reason: z.string() })),
+  }),
+});
 
 const schemas = {
+  summary,
   total_earning: chart.extend({
     ...periodMetadata,
     previous_start_date: z.iso.date(),
@@ -44,19 +117,7 @@ const schemas = {
       qty: amount,
     })),
   }),
-  session_summary: z.object({
-    use_session: z.boolean(),
-    mode: z.string(),
-    date: z.string(),
-    sessions: z.array(z.unknown()),
-    count: amount,
-    open_count: amount,
-    total_omzet: amount,
-    total_cash_in: amount,
-    total_difference: amount,
-    exceeded_count: amount,
-    cash_tolerance: amount,
-  }).or(z.object({ mode: z.literal("none"), use_session: z.literal(false) })),
+  session_summary: sessionSummary,
 };
 
 type DashboardAction = keyof typeof schemas;
@@ -66,8 +127,7 @@ export type DashboardPeriodFilter =
   | { period: "today" | "week" | "month" | "year" }
   | { period: "range"; startDate: string; endDate: string };
 export type DashboardChartData = z.output<typeof chart>;
-export type TrendingProductsData = DashboardData<"trending_product">;
-export type BestSalesData = DashboardData<"best_sales">;
+export type DashboardSummaryData = DashboardData<"summary">;
 export type SessionSummaryData = DashboardData<"session_summary">;
 
 const defaultPeriod: DashboardPeriodFilter = { period: "today" };
@@ -76,11 +136,17 @@ export async function fetchDashboard<A extends DashboardAction>(
   action: A,
   signal?: AbortSignal,
   filter = defaultPeriod,
+  branchId?: string,
 ): Promise<DashboardData<A> | null> {
+  const filterId = getBranchFilterId(branchId);
   const response = await request<{ status?: string; msg?: string; data?: unknown } | unknown[] | null>({
     url: "/admin/dashboard.php",
     method: "GET",
-    params: action === "session_summary" ? { action } : { action, ...filter },
+    params: {
+      action,
+      ...(action !== "session_summary" && filter),
+      ...(filterId && { branch_id: filterId }),
+    },
     signal,
   });
   let payload: unknown;
@@ -105,11 +171,12 @@ export function useDashboardQuery<A extends DashboardAction>(
   action: A,
   account: Account,
   filter: DashboardPeriodFilter | null = defaultPeriod,
+  branchId?: string,
 ) {
   const period = action === "session_summary" ? undefined : filter;
   return useQuery({
-    queryKey: ["admin", "dashboard", account.account_id, account.store?.id ?? account.event_id, account.store?.branch_id, account.store?.all_branches, action, period],
-    queryFn: ({ signal }) => fetchDashboard(action, signal, period ?? undefined),
+    queryKey: ["admin", "dashboard", account.account_id, account.store?.id ?? account.event_id, account.store?.branch_id, account.store?.all_branches, branchId, action, period],
+    queryFn: ({ signal }) => fetchDashboard(action, signal, period ?? undefined, branchId),
     enabled: period !== null,
     retry: (failureCount, error) => failureCount < 1 && !(isAxiosError(error) && error.response?.status === 400),
     meta: { toast: false },

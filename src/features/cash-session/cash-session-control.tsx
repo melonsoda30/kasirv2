@@ -539,7 +539,7 @@ export function CashSessionControl({
               </DrawerHeader>
               <form
                 id={formId}
-                className="drawer-body space-y-4"
+                className="modal-body space-y-4"
                 onSubmit={(event) => void submit(event)}
               >
                 {active && dialogStep !== "open" && (
@@ -708,7 +708,7 @@ export function CashSessionControl({
                 )}
               </form>
               <DrawerFooter>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="modal-actions">
                   <DrawerClose asChild>
                     <Button type="button" variant="outline" disabled={busy}>
                       Batal

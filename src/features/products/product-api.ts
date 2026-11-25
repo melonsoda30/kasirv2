@@ -1,4 +1,5 @@
 import { API_BASE_URL, isEmptyListResponse, request } from "../../lib/api";
+import { getBranchFilterId } from "../auth/auth-store";
 import type { Product } from "./sample-products";
 
 interface ProductRecord {
@@ -6,7 +7,10 @@ interface ProductRecord {
   product_sku: string;
   store_id: string;
   branch_id: string;
-  stock_quantity: number | string;
+  branch_name?: string | null;
+  stock_quantity?: number | string | null;
+  stock_qty?: number | string | null;
+  use_stock?: boolean | string | number | null;
   product_category: string;
   product_category_name: string;
   product_img: string;
@@ -30,7 +34,9 @@ interface OrderProductRecord {
   description: string;
   discount_type: string;
   discount: string | number;
-  stock: string | number;
+  stock?: string | number | null;
+  stock_qty?: string | number | null;
+  use_stock?: boolean | string | number | null;
 }
 
 // Keep this independent of the logged-in account until event selection is added.
@@ -41,7 +47,6 @@ export const menuListParams = {
   search: "",
   status: "all",
   menu_id: "all",
-  branch_id: PRODUCT_EVENT_ID,
 } as const;
 
 const adminProductEndpoint = "/admin/product";
@@ -55,6 +60,18 @@ export function mapProductRecord(
 ): Product {
   const status = record.status.trim().toLowerCase();
   const imagePath = record.product_img?.trim() ?? "";
+  const branchName = record.branch_name?.trim();
+  const stockQuantity =
+    record.stock_qty === undefined ? record.stock_quantity : record.stock_qty;
+  const withoutStock =
+    stockQuantity === null ||
+    (typeof stockQuantity === "string" && !stockQuantity.trim());
+  const stockSetting = String(record.use_stock ?? "")
+    .trim()
+    .toLowerCase();
+  let useStock: boolean | undefined = withoutStock ? false : undefined;
+  if (stockSetting === "true" || stockSetting === "1") useStock = true;
+  if (stockSetting === "false" || stockSetting === "0") useStock = false;
   const discountTypes: Record<string, string> = {
     none: "Tanpa diskon",
     fixed: "Nominal",
@@ -77,6 +94,7 @@ export function mapProductRecord(
     store: record.store_id || "Toko Utama",
     storeId: record.store_id,
     branchId: record.branch_id ?? "",
+    ...(branchName && { branchName }),
     photo:
       imagePath && !/^[?#]/.test(imagePath)
         ? new URL(imagePath, `${API_BASE_URL.replace(/\/$/, "")}${endpoint}`)
@@ -93,7 +111,8 @@ export function mapProductRecord(
       "nonactive",
       "nonaktif",
     ].includes(status),
-    stock: number(record.stock_quantity ?? 0),
+    ...(useStock !== undefined && { useStock }),
+    stock: number(stockQuantity ?? 0),
   };
 }
 
@@ -113,6 +132,8 @@ function mapOrderProductRecord(record: OrderProductRecord): Product {
       discount_type: record.discount_type,
       discount: record.discount,
       stock_quantity: record.stock,
+      stock_qty: record.stock_qty,
+      use_stock: record.use_stock,
     },
     orderProductEndpoint,
   );
@@ -148,13 +169,15 @@ async function fetchProductList<TRecord>(
   return data.map((record) => mapRecord(record));
 }
 
-export function fetchProducts(signal?: AbortSignal) {
-  return fetchProductList(
+export async function fetchProducts(signal?: AbortSignal, branchId = PRODUCT_EVENT_ID) {
+  const filterId = getBranchFilterId(branchId);
+  const products = await fetchProductList(
     adminProductEndpoint,
-    menuListParams,
+    { ...menuListParams, ...(filterId && { branch_id: filterId }) },
     mapProductRecord,
     signal,
   );
+  return filterId ? products.filter((product) => product.branchId === filterId) : products;
 }
 
 export function fetchOrderProducts(signal?: AbortSignal) {
@@ -189,7 +212,7 @@ export async function updateProductStatus(
 
 export async function deleteProduct(menuId: string): Promise<string> {
   const data = new FormData();
-  data.set("action", "delete_menu");
+  data.set("action", "delete_product");
   data.set("product_sku", menuId);
   const response = await request<{ status: string; msg?: string } | null>({
     url: "/admin/product",
@@ -199,6 +222,28 @@ export async function deleteProduct(menuId: string): Promise<string> {
   if (response?.status !== "success")
     throw new Error(response?.msg || "Gagal menghapus produk.");
   return response.msg || "Produk dihapus.";
+}
+
+export async function copyProduct({ productSku, branchId, useStock, stockQuantity }: {
+  productSku: string;
+  branchId: string;
+  useStock: boolean;
+  stockQuantity?: string;
+}) {
+  const data = new FormData();
+  data.set("action", "copy_product");
+  data.set("product_sku", productSku);
+  data.set("branch_id", branchId);
+  data.set("use_stock", String(useStock));
+  if (stockQuantity !== undefined) data.set("stock_qty", stockQuantity);
+  const response = await request<{ status: string; msg?: string } | null>({
+    url: "/admin/product",
+    method: "POST",
+    data,
+  });
+  if (response?.status !== "success") {
+    throw new Error(response?.msg || "Gagal menyalin produk.");
+  }
 }
 
 export interface SaveProductInput {
@@ -211,6 +256,8 @@ export interface SaveProductInput {
   description: string;
   discount: string;
   discountType: string;
+  useStock: boolean;
+  stockQuantity?: string;
 }
 
 export async function saveProduct(input: SaveProductInput): Promise<string> {
@@ -230,6 +277,9 @@ export async function saveProduct(input: SaveProductInput): Promise<string> {
   data.set("description", input.description);
   data.set("discount", discountType === "none" ? "0" : input.discount || "0");
   data.set("discount_type", discountType);
+  data.set("use_stock", String(input.useStock));
+  if (input.stockQuantity !== undefined)
+    data.set("stock_qty", input.stockQuantity);
   const response = await request<{ status: string; msg?: string } | null>({
     url: "/admin/product",
     method: "POST",
