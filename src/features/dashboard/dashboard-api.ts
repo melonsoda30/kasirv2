@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { z } from "zod";
 import type { Account } from "@/features/auth/auth-store";
 import { isEmptyListResponse, request } from "@/lib/api";
@@ -7,15 +8,25 @@ const amount = z.union([z.number(), z.string().trim().min(1)]).pipe(z.coerce.num
 const series = z.object({
   label: z.string(),
   data: z.array(amount),
+  backgroundColor: z.string().optional(),
   borderColor: z.string().optional(),
   borderWidth: z.number().positive().optional(),
 });
 const chart = z.object({ labels: z.array(z.string()), datasets: z.array(series) });
+const periodMetadata = {
+  period: z.enum(["today", "week", "month", "year", "range"]),
+  granularity: z.enum(["day", "month"]),
+  start_date: z.iso.date(),
+  end_date: z.iso.date(),
+};
 
 const schemas = {
   total_earning: chart.extend({
-    today_earning: amount,
-    yesterday_earning: amount,
+    ...periodMetadata,
+    previous_start_date: z.iso.date(),
+    previous_end_date: z.iso.date(),
+    current_earning: amount,
+    previous_earning: amount,
     grow: z.string(),
   }),
   profit_statistic: chart,
@@ -26,11 +37,11 @@ const schemas = {
     sales_earning: amount,
   })),
   trending_product: z.object({
-    days: z.array(z.string()),
+    ...periodMetadata,
     data: z.array(z.object({
       product_img: z.string().nullish(),
       product_name: z.string(),
-      qtyPerDays: z.array(amount),
+      qty: amount,
     })),
   }),
   session_summary: z.object({
@@ -49,17 +60,27 @@ const schemas = {
 };
 
 type DashboardAction = keyof typeof schemas;
-type DashboardData<A extends DashboardAction> = z.output<(typeof schemas)[A]>;
+export type DashboardReportAction = Exclude<DashboardAction, "session_summary">;
+export type DashboardData<A extends DashboardAction> = z.output<(typeof schemas)[A]>;
+export type DashboardPeriodFilter =
+  | { period: "today" | "week" | "month" | "year" }
+  | { period: "range"; startDate: string; endDate: string };
 export type DashboardChartData = z.output<typeof chart>;
 export type TrendingProductsData = DashboardData<"trending_product">;
 export type BestSalesData = DashboardData<"best_sales">;
 export type SessionSummaryData = DashboardData<"session_summary">;
 
-export async function fetchDashboard<A extends DashboardAction>(action: A, signal?: AbortSignal): Promise<DashboardData<A> | null> {
+const defaultPeriod: DashboardPeriodFilter = { period: "today" };
+
+export async function fetchDashboard<A extends DashboardAction>(
+  action: A,
+  signal?: AbortSignal,
+  filter = defaultPeriod,
+): Promise<DashboardData<A> | null> {
   const response = await request<{ status?: string; msg?: string; data?: unknown } | unknown[] | null>({
-    url: "/admin/dashboard",
+    url: "/admin/dashboard.php",
     method: "GET",
-    params: { action },
+    params: action === "session_summary" ? { action } : { action, ...filter },
     signal,
   });
   let payload: unknown;
@@ -80,10 +101,17 @@ export async function fetchDashboard<A extends DashboardAction>(action: A, signa
   return parsed.data as DashboardData<A>;
 }
 
-export function useDashboardQuery<A extends DashboardAction>(action: A, account: Account) {
+export function useDashboardQuery<A extends DashboardAction>(
+  action: A,
+  account: Account,
+  filter: DashboardPeriodFilter | null = defaultPeriod,
+) {
+  const period = action === "session_summary" ? undefined : filter;
   return useQuery({
-    queryKey: ["admin", "dashboard", account.account_id, account.store?.id ?? account.event_id, account.store?.branch_id, account.store?.all_branches, action],
-    queryFn: ({ signal }) => fetchDashboard(action, signal),
+    queryKey: ["admin", "dashboard", account.account_id, account.store?.id ?? account.event_id, account.store?.branch_id, account.store?.all_branches, action, period],
+    queryFn: ({ signal }) => fetchDashboard(action, signal, period ?? undefined),
+    enabled: period !== null,
+    retry: (failureCount, error) => failureCount < 1 && !(isAxiosError(error) && error.response?.status === 400),
     meta: { toast: false },
   });
 }

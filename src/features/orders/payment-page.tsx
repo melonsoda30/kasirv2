@@ -19,6 +19,7 @@ import {
   Tag,
 } from "lucide-react";
 import { cn } from "cn";
+import { ImagePreview } from "@/components/image-input";
 import { InputNominal } from "@/components/input-nominal";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
@@ -35,8 +36,8 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { getCashierBranch, useAuthStore, usesCashierMode, type Account } from "@/features/auth/auth-store";
-import { formatCurrency } from "@/lib/currency";
+import { getAccountBranches, getCashierBranch, useAuthStore, usesCashierMode, type Account } from "@/features/auth/auth-store";
+import { formatCurrency, formatNominal } from "@/lib/currency";
 import { cashSessionAllowsSales, cashSessionOptions, refreshCashSessionData, useCashSession } from "@/features/cash-session/cash-session-query";
 import { fetchTransactionDetail } from "@/features/sales/sales-api";
 import type { Sale, SaleDiscount, SaleFee } from "@/features/sales/sales-summary";
@@ -68,6 +69,21 @@ const drawerTitles: Record<DrawerStep, string> = {
   proof: "Upload Bukti Pembayaran",
 };
 const paymentIcons = { cash: Banknote, qris: QrCode, noncash: CreditCard };
+const receiptDateTime = new Intl.DateTimeFormat("id-ID", {
+  dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta",
+});
+
+type CompletedPayment = PaymentReceipt & {
+  transactionId?: string;
+  completedAt: Date;
+  cashier: string;
+  store: string;
+  branch?: string;
+  salesperson?: string;
+  taxAmount?: number;
+  proofPreview?: string;
+  recordedProof?: Sale["paymentProof"];
+};
 
 export function PaymentPage({ orderId, pending, returnSession }: { orderId: string; pending?: boolean; returnSession?: string }) {
   const account = useAuthStore((state) => state.session?.account);
@@ -81,7 +97,7 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
   );
   const [completed, setCompleted] = useState<{
     owner: string;
-    receipt: PaymentReceipt;
+    receipt: CompletedPayment;
   } | null>(null);
   const receipt =
     completed?.owner === draftOwner ? completed?.receipt : undefined;
@@ -163,11 +179,21 @@ export function PaymentPage({ orderId, pending, returnSession }: { orderId: stri
 }
 
 function PaymentCompleteDrawer({ receipt, returnSession }: {
-  receipt: PaymentReceipt;
+  receipt: CompletedPayment;
   returnSession?: string;
 }) {
   const [open, setOpen] = useState(true);
   const navigate = useNavigate();
+  const itemCount = receipt.order.items.reduce((count, item) => count + item.quantity, 0);
+  const details = [
+    ["ID transaksi", receipt.transactionId],
+    ["Pembayaran dikonfirmasi", receiptDateTime.format(receipt.completedAt)],
+    ["Toko", receipt.store],
+    ["Cabang", receipt.branch],
+    ["Kasir", receipt.cashier],
+    ["Sales", receipt.salesperson],
+  ].filter(([, value]) => !!value);
+  const recordedProof = receipt.recordedProof;
 
   return (
     <Drawer
@@ -182,18 +208,77 @@ function PaymentCompleteDrawer({ receipt, returnSession }: {
         <DrawerHeader className="text-center">
           <CircleCheck className="mx-auto mb-2 size-10 fill-success-indicator text-status-icon-foreground" aria-hidden="true" />
           <DrawerTitle>Pembayaran selesai</DrawerTitle>
-          <DrawerDescription>{receipt.order.name} ({receipt.method.title})</DrawerDescription>
+          <DrawerDescription className="wrap-anywhere">
+            {receipt.order.name === receipt.transactionId ? "Rincian pembelian" : receipt.order.name}
+          </DrawerDescription>
         </DrawerHeader>
-        <DrawerBody>
-          <dl className="space-y-2 text-sm">
-            <TotalRow label="Total pembayaran" amount={receipt.total} />
-            {receipt.method.kind === "cash" && (
-              <>
-                <TotalRow label="Dibayarkan" amount={receipt.paid} />
-                <TotalRow label="Kembali" amount={receipt.change} />
-              </>
+        <DrawerBody className="space-y-3">
+          <section aria-label="Produk dibeli" className="bento-surface px-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-3">
+              <h3 className="font-semibold">Produk dibeli</h3>
+              <span className="text-xs text-muted-foreground">{formatNominal(itemCount)} item</span>
+            </div>
+            <ul className="divide-y">
+              {receipt.order.items.map((item) => (
+                <OrderItemRow key={item.key} item={item} showDiscount />
+              ))}
+            </ul>
+            {receipt.order.note?.trim() && (
+              <div className="space-y-1 border-t py-3">
+                <h3 className="font-medium">Catatan pesanan</h3>
+                <p className="wrap-anywhere whitespace-pre-wrap text-muted-foreground">{receipt.order.note.trim()}</p>
+              </div>
             )}
-          </dl>
+          </section>
+          <section aria-label="Ringkasan pembayaran" className="bento-surface space-y-3 p-4">
+            <h3 className="font-semibold">Ringkasan pembayaran</h3>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="min-w-0">Metode pembayaran</dt>
+                <dd className="wrap-anywhere text-right font-medium">{receipt.method.title}</dd>
+              </div>
+              <TotalRow label="Subtotal produk" amount={receipt.subtotal} />
+              {!!receipt.taxAmount && <TotalRow label="PPN" amount={receipt.taxAmount} />}
+              {receipt.additionalPrices.map(({ title, value }, index) => (
+                <TotalRow key={`fee-${index}`} label={title} amount={value} />
+              ))}
+              {receipt.methodFeeAmount > 0 && <TotalRow label="Fee pembayaran" amount={receipt.methodFeeAmount} />}
+              {receipt.discounts.map(({ title, type, value }, index) => (
+                <TotalRow key={`discount-${index}`}
+                  label={type === "percent" ? `${title} (${value.toLocaleString("id-ID")}%)` : title}
+                  amount={-(receipt.discountAmounts[index] ?? 0)} />
+              ))}
+              <TotalRow label="Total pembayaran" amount={receipt.total} className="border-t pt-2 text-base font-semibold" />
+              {receipt.method.kind === "cash" && (
+                <>
+                  <TotalRow label="Dibayarkan" amount={receipt.paid} />
+                  <TotalRow label="Kembali" amount={receipt.change} />
+                </>
+              )}
+            </dl>
+          </section>
+          <section aria-label="Informasi pesanan" className="bento-surface space-y-3 p-4">
+            <h3 className="font-semibold">Informasi pesanan</h3>
+            <dl className="space-y-2 text-sm">
+              {details.map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="min-w-0 wrap-anywhere text-right">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+          {(receipt.proofPreview || recordedProof?.url) && (
+            <section aria-label="Bukti pembayaran" className="bento-surface overflow-hidden">
+              <h3 className="border-b p-4 font-semibold">Bukti pembayaran</h3>
+              {receipt.proofPreview && <ImagePreview src={receipt.proofPreview} label="Bukti pembayaran yang diunggah" />}
+              {!receipt.proofPreview && recordedProof?.url && (
+                <a href={recordedProof.url} target="_blank" rel="noopener noreferrer" className="block p-4 font-medium text-link underline">
+                  Buka bukti pembayaran
+                </a>
+              )}
+            </section>
+          )}
         </DrawerBody>
         <DrawerFooter>
           <DrawerClose asChild>
@@ -220,7 +305,7 @@ function PaymentForm({
   order: OrderDraft;
   pendingSale?: Sale;
   methodsQuery: ReturnType<typeof usePaymentMethods>;
-  onComplete: (receipt: PaymentReceipt) => void;
+  onComplete: (receipt: CompletedPayment) => void;
 }) {
   const cashSession = useCashSession();
   const queryClient = useQueryClient();
@@ -345,7 +430,7 @@ function PaymentForm({
     setDrawer(null);
   }
 
-  async function finish(proof?: File) {
+  async function finish(proof?: File, proofPreview?: string) {
     if (
       !method ||
       checkingPendingMethods ||
@@ -378,6 +463,7 @@ function PaymentForm({
         change: isCash ? change : 0,
         proof,
       };
+      let transactionId = pendingSale?.id;
       if (pendingSale) {
         await resolvePendingTransaction(order.id, {
           ...pendingPayment?.updates,
@@ -385,10 +471,24 @@ function PaymentForm({
           ...(isCash && { paid: payment.paid, change: payment.change }),
         }, branchId);
       } else {
-        await savePayment(payment, account, 'add_trx', branchId);
+        transactionId = await savePayment(payment, account, 'add_trx', branchId);
         void queryClient.invalidateQueries({ queryKey: ["products"] });
       }
-      onComplete(payment);
+      const receiptBranchId = branchId ?? pendingSale?.branchId ?? order.items[0]?.product.branchId ?? account.store?.branch_id;
+      const receiptBranch = getAccountBranches(account.store).find(({ id }) => id === receiptBranchId)?.name;
+      onComplete({
+        ...payment,
+        transactionId,
+        additionalPrices: pendingPayment?.fees ?? payment.additionalPrices,
+        taxAmount: pendingPayment?.taxAmount,
+        completedAt: new Date(),
+        cashier: account.account_fullname || account.account_username,
+        store: pendingSale?.store || account.store?.name || account.event_location,
+        branch: receiptBranch || (receiptBranchId === "all" ? undefined : receiptBranchId),
+        salesperson: pendingSale?.salesperson?.name,
+        proofPreview,
+        recordedProof: method.code === recordedMethod?.code ? pendingSale?.paymentProof : undefined,
+      });
       refreshCashSessionData(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
     } catch (error) {
@@ -804,7 +904,7 @@ function PaymentForm({
                   busy={busy}
                   saveError={saveError}
                   required={isQris}
-                  onFinish={(file) => void finish(file)}
+                  onFinish={(file, preview) => void finish(file, preview)}
                 />)}
             </div>
           )}

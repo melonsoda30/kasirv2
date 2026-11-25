@@ -333,3 +333,18 @@ body {
     translate: 0 100%;
   }
 }
+
+@keyframes login-greeting {
+  0%, 29% {
+    translate: 0 -75%;
+  }
+  33.333%, 62.333% {
+    translate: 0 -50%;
+  }
+  66.667%, 95.667% {
+    translate: 0 -25%;
+  }
+  100% {
+    translate: 0 0;
+  }
+}

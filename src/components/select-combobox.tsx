@@ -16,13 +16,15 @@ export type SelectComboboxProps = Omit<ComponentProps<typeof ComboboxInput>,
   disabled?: boolean
   /** Enable text search. Disable to open the options without a mobile keyboard. */
   searchable?: boolean
+  /** Override the closed trigger label when search is disabled. */
+  triggerLabel?: string
   invalid?: boolean
   emptyMessage?: string
 }
 
 /** A single select with optional search. Supports plain strings or separate labels and IDs. */
 export function SelectCombobox({ options, value, onChange, disabled = false, invalid,
-  searchable = true, emptyMessage = 'Tidak ditemukan.', ...inputProps }: SelectComboboxProps) {
+  searchable = true, triggerLabel, emptyMessage = 'Tidak ditemukan.', ...inputProps }: SelectComboboxProps) {
   const items = useMemo(() => options.map((option) => typeof option === 'string' ? { value: option, label: option } : option), [options])
   const byValue = new Map(items.map((item) => [item.value, item]))
   return (
@@ -46,7 +48,7 @@ export function SelectCombobox({ options, value, onChange, disabled = false, inv
           className={cn('flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive dark:bg-input/30', inputProps.className)}
         >
           <span className={cn('truncate', !value && 'text-muted-foreground')}>
-            {byValue.get(value)?.label ?? (value || inputProps.placeholder)}
+            {triggerLabel ?? byValue.get(value)?.label ?? (value || inputProps.placeholder)}
           </span>
         </ComboboxTrigger>
       )}

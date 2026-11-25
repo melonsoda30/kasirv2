@@ -25,6 +25,8 @@ export interface DatePickerRangeProps {
   onChange: (value: DateRange | undefined) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Control the modal externally. In this mode, id refers to the opener. */
+  dialog?: { open: boolean; onOpenChange: (open: boolean) => void };
 }
 
 export function DatePickerRange({
@@ -34,13 +36,18 @@ export function DatePickerRange({
   onChange,
   disabled = false,
   placeholder = "Semua tanggal",
+  dialog,
 }: DatePickerRangeProps) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
+  const [internalOpen, setOpen] = useState(false);
+  const [pendingRange, setPendingRange] = useState<DateRange>();
+  const controlledDialog = type === "modal" ? dialog : undefined;
+  const open = controlledDialog?.open ?? internalOpen;
+  const draft = pendingRange ?? value;
 
   function handleOpenChange(next: boolean) {
-    if (next) setDraft(value);
-    setOpen(next);
+    setPendingRange(undefined);
+    if (controlledDialog) controlledDialog.onOpenChange(next);
+    else setOpen(next);
   }
 
   const trigger = (
@@ -75,10 +82,11 @@ export function DatePickerRange({
       onSelect={(_range, date) => {
         // DayPicker may fill both endpoints on the first click; require two selections.
         const next = selectRangeDate(draft, date);
-        setDraft(next);
         if (next.from && next.to) {
           onChange(next);
-          setOpen(false);
+          handleOpenChange(false);
+        } else {
+          setPendingRange(next);
         }
       }}
     />
@@ -87,11 +95,15 @@ export function DatePickerRange({
   if (type === "modal")
     return (
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogTrigger asChild>{trigger}</DialogTrigger>
+        {!controlledDialog && <DialogTrigger asChild>{trigger}</DialogTrigger>}
         <DialogContent
           showCloseButton={false}
           aria-describedby={undefined}
           className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
+          onCloseAutoFocus={controlledDialog && id ? (event) => {
+            event.preventDefault();
+            document.getElementById(id)?.focus();
+          } : undefined}
         >
           <DialogTitle className="sr-only">Pilih rentang tanggal</DialogTitle>
           <dl
@@ -117,9 +129,8 @@ export function DatePickerRange({
             variant="outline"
             disabled={!draft?.from && !value?.from}
             onClick={() => {
-              setDraft(undefined);
               onChange(undefined);
-              setOpen(false);
+              handleOpenChange(false);
             }}
           >
             Hapus

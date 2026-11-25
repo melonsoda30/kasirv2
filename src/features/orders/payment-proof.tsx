@@ -16,7 +16,7 @@ export function PaymentProof({
   busy: boolean;
   saveError: string;
   required: boolean;
-  onFinish: (file?: File) => void;
+  onFinish: (file?: File, preview?: string) => void;
 }) {
   const gallery = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
@@ -134,7 +134,7 @@ export function PaymentProof({
             type="button"
             loading={busy}
             disabled={(required && !proof) || reading}
-            onClick={() => onFinish(proof?.file)}
+            onClick={() => onFinish(proof?.file, proof?.preview)}
           >
             Selesai
           </Button>

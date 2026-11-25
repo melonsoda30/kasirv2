@@ -493,6 +493,7 @@ export async function savePayment(
         ),
       );
     }
+    return typeof response.trx_id === "string" ? response.trx_id.trim() || undefined : undefined;
   } catch (error) {
     if (isAxiosError<PaymentResponse>(error)) {
       if (!error.response || error.response.status >= 500) {

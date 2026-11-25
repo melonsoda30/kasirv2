@@ -379,7 +379,7 @@ test('admin user mutations encode optional credentials, branch placement, binary
   }
 })
 
-test('dashboard requests all five GET actions in the current session scope without extra parameters', async () => {
+test('dashboard sends independent report periods and keeps the shift summary independent', async () => {
   const { fetchDashboard } = await import('../src/features/dashboard/dashboard-api.ts')
   const summary = {
     mode: 'shift', use_session: true, date: '2026-11-19', sessions: [{ session_id: '1' }],
@@ -391,12 +391,19 @@ test('dashboard requests all five GET actions in the current session scope witho
     datasets: [{ label: 'Earning ', data: [19980, 0], borderColor: '#003994', borderWidth: 1 }],
   }
   const responses = {
-    total_earning: { ...chart, today_earning: 0, yesterday_earning: 19980, grow: '-100 %' },
+    total_earning: {
+      period: 'today', granularity: 'day', start_date: '2026-11-24', end_date: '2026-11-24',
+      previous_start_date: '2026-11-23', previous_end_date: '2026-11-23',
+      labels: ['24/11/26'],
+      datasets: [{ label: 'Earning ', data: [0], backgroundColor: '#003994', borderColor: '#003994', borderWidth: 1 }],
+      current_earning: 0, previous_earning: 19980, grow: '-100 %',
+    },
     profit_statistic: { ...chart, datasets: [{ label: 'Profit ', data: [-500, 0] }] },
     best_sales: [{ sales_nip: '2', sales_foto: null, sales_name: 'Kasir Demo', sales_earning: '19980' }],
-    trending_product: { days: ['1', '2', '3'], data: [
-      { product_img: 'photo.png', product_name: 'Paket Hemat', qtyPerDays: ['0', '2', '0'] },
-    ] },
+    trending_product: {
+      period: 'today', granularity: 'day', start_date: '2026-11-24', end_date: '2026-11-24',
+      data: [{ product_img: '', product_name: 'Paket Hemat', qty: '2' }],
+    },
     session_summary: summary,
   }
   const calls = []
@@ -407,22 +414,60 @@ test('dashboard requests all five GET actions in the current session scope witho
   }, false)
   try {
     api.defaults.adapter = async (config) => {
-      assert.equal(config.url, '/admin/dashboard')
+      assert.equal(config.url, '/admin/dashboard.php')
       assert.equal(config.method, 'get')
       assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
       assert.equal(config.signal, signal)
       const { action } = config.params
-      assert.deepEqual(config.params, { action })
-      calls.push(action)
+      calls.push(config.params)
       const payload = responses[action]
       return { config, status: 200, headers: {}, data: action === 'best_sales' ? payload : { status: 'success', data: payload } }
     }
     assert.deepEqual(await fetchDashboard('total_earning', signal), responses.total_earning)
     assert.deepEqual(await fetchDashboard('profit_statistic', signal), responses.profit_statistic)
     assert.deepEqual(await fetchDashboard('best_sales', signal), [{ ...responses.best_sales[0], sales_earning: 19980 }])
-    assert.deepEqual((await fetchDashboard('trending_product', signal)).data[0].qtyPerDays, [0, 2, 0])
+    assert.equal((await fetchDashboard('trending_product', signal)).data[0].qty, 2)
     assert.deepEqual(await fetchDashboard('session_summary', signal), summary)
-    assert.deepEqual(calls, Object.keys(responses))
+    const reportActions = ['total_earning', 'profit_statistic', 'best_sales', 'trending_product']
+    assert.deepEqual(calls.splice(0), [
+      ...reportActions.map((action) => ({ action, period: 'today' })),
+      { action: 'session_summary' },
+    ])
+    responses.total_earning = {
+      ...responses.total_earning,
+      period: 'month', start_date: '2026-11-01', end_date: '2026-11-30',
+      previous_start_date: '2026-10-01', previous_end_date: '2026-10-24',
+      labels: Array.from({ length: 30 }, (_, index) => `${String(index + 1).padStart(2, '0')}/11/26`),
+      datasets: [{
+        ...responses.total_earning.datasets[0],
+        data: Array.from({ length: 30 }, (_, index) => ({ 18: 314685, 22: 652445, 23: 204259 })[index] ?? 0),
+      }],
+      current_earning: 1171389, previous_earning: 0, grow: '0 %',
+    }
+    assert.deepEqual(await fetchDashboard('total_earning', signal, { period: 'month' }), responses.total_earning)
+    const range = { period: 'range', startDate: '2026-01-15', endDate: '2026-06-20' }
+    await fetchDashboard('profit_statistic', signal, range)
+    await fetchDashboard('best_sales', signal, { period: 'month' })
+    responses.trending_product = {
+      period: 'year', granularity: 'month', start_date: '2026-01-01', end_date: '2026-12-31',
+      data: [
+        { product_img: '?v=1795524373', product_name: 'Air Mineral 600ml', qty: '20' },
+        { product_img: '?v=1795524373', product_name: 'Keripik Pisang Madu', qty: '15' },
+        { product_img: '?v=1795524373', product_name: 'Air Mineral 600ml', qty: '4' },
+      ],
+    }
+    assert.deepEqual(await fetchDashboard('trending_product', signal, { period: 'year' }), {
+      ...responses.trending_product,
+      data: responses.trending_product.data.map((product) => ({ ...product, qty: Number(product.qty) })),
+    })
+    await fetchDashboard('session_summary', signal, range)
+    assert.deepEqual(calls, [
+      { action: 'total_earning', period: 'month' },
+      { action: 'profit_statistic', ...range },
+      { action: 'best_sales', period: 'month' },
+      { action: 'trending_product', period: 'year' },
+      { action: 'session_summary' },
+    ])
     responses.session_summary = { mode: 'none', use_session: false, sessions: [] }
     assert.equal((await fetchDashboard('session_summary', signal)).use_session, false)
     responses.profit_statistic = []
@@ -432,6 +477,23 @@ test('dashboard requests all five GET actions in the current session scope witho
   } finally {
     useAuthStore.getState().clearSession()
   }
+})
+
+test('dashboard restores saved periods by report, account and branch', async () => {
+  const { dashboardPeriodFilter, readDashboardFilter, saveDashboardFilter } = await import('../src/features/dashboard/dashboard-filters.ts')
+  const account = { account_id: 'admin-one', store: { id: 'store-one', branch_id: 'branch-one' } }
+  const range = { period: 'range', startDate: '2026-01-15', endDate: '2026-06-20' }
+  saveDashboardFilter(account, 'total_earning', { period: 'week' })
+  saveDashboardFilter(account, 'profit_statistic', range)
+
+  assert.deepEqual(readDashboardFilter(account, 'total_earning'), { period: 'week' })
+  const { period, dateRange } = readDashboardFilter(account, 'profit_statistic')
+  assert.deepEqual(dashboardPeriodFilter(period, dateRange), range)
+  saveDashboardFilter(account, 'profit_statistic', dashboardPeriodFilter('month', dateRange))
+  assert.deepEqual(readDashboardFilter(account, 'profit_statistic'), { period: 'month' })
+  assert.deepEqual(readDashboardFilter(account, 'best_sales'), { period: 'today' })
+  assert.deepEqual(readDashboardFilter({ ...account, account_id: 'admin-two' }, 'total_earning'), { period: 'today' })
+  assert.deepEqual(readDashboardFilter({ ...account, store: { ...account.store, branch_id: 'branch-two' } }, 'total_earning'), { period: 'today' })
 })
 
 test('product catalog maps API records and sends fixed all-branch params with bearer authorization', async () => {
@@ -611,7 +673,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     let sent
     api.defaults.adapter = async (config) => {
       sent = config
-      return { config, status: 200, headers: {}, data: { status: 'success' } }
+      return { config, status: 200, headers: {}, data: { status: 'success', trx_id: 'TRX-RECEIPT' } }
     }
     const receipt = {
       order: { id: 'order-test', name: 'Pesanan', note: '  Tanpa es  ', items: [{
@@ -621,7 +683,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
       subtotal: 6300, methodFeeAmount: 44, discountAmount: 322, discountAmounts: [322], total: 6122, paid: 6122, change: 0,
       additionalPrices: [{ title: 'Kemasan', value: 100 }], discounts: [{ title: 'Promo', type: 'percent', value: 5 }], method: card,
     }
-    await savePayment(receipt, cashier)
+    assert.equal(await savePayment(receipt, cashier), 'TRX-RECEIPT')
     assert.equal(sent.url, '/transaction/trx')
     assert.equal(sent.method, 'post')
     assert.equal(sent.data.get('action'), 'add_trx')

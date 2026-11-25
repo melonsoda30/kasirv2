@@ -154,18 +154,18 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
           </DrawerDescription>
         </DrawerBody>
         <DrawerFooter>
-          {/* <p className="truncate text-xs text-muted-foreground">Tambahkan ke {active?.name || 'pesanan'}</p> */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex shrink-0 items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
+                className="size-11"
                 disabled={quantity <= 1}
                 onClick={() => setQuantity((value) => value - 1)}
                 aria-label="Kurangi jumlah"
               >
-                <Minus />
+                <Minus aria-hidden="true" />
               </Button>
               <Input
                 type="number"
@@ -176,20 +176,21 @@ function OrderProductCard({ product, edit }: { product: Product; edit?: PendingP
                 aria-label="Jumlah produk"
                 value={quantity || ""}
                 onChange={(event) => setQuantity(Number(event.target.value))}
-                className="w-16 text-center"
+                className="h-11 w-16 text-center tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [appearance:textfield]"
               />
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
+                className="size-11"
                 disabled={quantity >= remaining}
                 onClick={() => setQuantity((value) => value + 1)}
                 aria-label="Tambah jumlah"
               >
-                <Plus />
+                <Plus aria-hidden="true" />
               </Button>
             </div>
-            <p className="font-semibold tabular-nums">
+            <p className="ml-auto min-w-0 wrap-anywhere text-right text-base leading-tight font-semibold tabular-nums">
               {formatCurrency(getProductPricing(product).finalPrice * quantity)}
             </p>
           </div>
