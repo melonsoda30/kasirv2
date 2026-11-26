@@ -11,7 +11,7 @@ import { formatShiftMessage } from "@/features/cash-session/cash-session-api";
 import { fetchTransactionDetail } from "@/features/sales/sales-api";
 import type { Sale, SaleDiscount, SaleFee } from "@/features/sales/sales-summary";
 
-export const MAX_PAYMENT_PROOF_SIZE = 5 * 1024 * 1024;
+export const MAX_PAYMENT_PROOF_SIZE = 100_000;
 
 export type AdditionalFee = { name: string; amount: number };
 export type Discount = {
@@ -37,15 +37,10 @@ export function customerPaymentFee(method?: PaymentMethodSelection) {
   return method?.feeBearer === "customer" && fee && fee.amount > 0 ? fee : undefined;
 }
 
-function calculatePaymentTotals(
-  subtotal: number,
-  additionalAmount: number,
+function applyPaymentDiscounts(
+  beforeDiscount: number,
   discounts: Pick<SaleDiscount, "value" | "type">[],
-  methodFeeAmount: number,
-  taxRate = 0,
 ) {
-  const beforeDiscount =
-    subtotal + additionalAmount + methodFeeAmount + percentageOf(subtotal, taxRate);
   let total = beforeDiscount;
   const discountAmounts = discounts.map(({ type, value }) => {
     const amount = type === "percent" ? percentageOf(beforeDiscount, value) : value;
@@ -54,12 +49,66 @@ function calculatePaymentTotals(
     return applied;
   });
   return {
-    subtotal,
-    methodFeeAmount,
     discountAmount: beforeDiscount - total,
     discountAmounts,
     total,
   };
+}
+
+function calculatePaymentTotals(
+  subtotal: number,
+  additionalAmount: number,
+  discounts: Pick<SaleDiscount, "value" | "type">[],
+  { paymentFeeRate = 0, fixedFee = 0, taxRate = 0, recordedTotal }: {
+    paymentFeeRate?: number;
+    fixedFee?: number;
+    taxRate?: number;
+    recordedTotal?: number;
+  } = {},
+) {
+  const hasTax = taxRate > 0;
+  const discountBase = subtotal + additionalAmount + (hasTax ? 0 : fixedFee);
+  const discounted = applyPaymentDiscounts(discountBase, discounts);
+  const taxAmount = percentageOf(discounted.total, taxRate);
+  const beforeMethodFee = discounted.total + taxAmount + (hasTax ? fixedFee : 0);
+  const percentageFee = Math.round(beforeMethodFee * paymentFeeRate / 100);
+  const total = beforeMethodFee + percentageFee;
+  if (recordedTotal !== undefined && total !== recordedTotal) {
+    // Existing receipts may have calculated PPN from the product subtotal.
+    const previousTax = percentageOf(subtotal, taxRate);
+    const previousBase = subtotal + additionalAmount + fixedFee + previousTax;
+    const previousDiscounted = applyPaymentDiscounts(previousBase, discounts);
+    const previousPercentageFee = Math.round(previousDiscounted.total * paymentFeeRate / 100);
+    const previousTotal = previousDiscounted.total + previousPercentageFee;
+    if (!paymentFeeRate || previousTotal === recordedTotal) {
+      return {
+        subtotal,
+        taxAmount: previousTax,
+        methodFeeAmount: fixedFee + previousPercentageFee,
+        ...previousDiscounted,
+        total: previousTotal,
+      };
+    }
+    const legacyFee = percentageOf(subtotal, paymentFeeRate);
+    return {
+      subtotal,
+      taxAmount: previousTax,
+      methodFeeAmount: fixedFee + legacyFee,
+      ...applyPaymentDiscounts(previousBase + legacyFee, discounts),
+    };
+  }
+  return { subtotal, taxAmount, methodFeeAmount: fixedFee + percentageFee, ...discounted, total };
+}
+
+export function recordedPaymentTotals(sale: Sale, subtotal: number) {
+  const additionalPrices = sale.additionalPrices ?? [];
+  const fixedFee = storedFixedFee(additionalPrices, sale.paymentFee)?.value ?? 0;
+  return calculatePaymentTotals(
+    subtotal,
+    additionalPrices.reduce((sum, { value }) => sum + value, 0) - fixedFee,
+    sale.discounts ?? [],
+    { paymentFeeRate: sale.paymentFee, fixedFee, taxRate: sale.tax, recordedTotal: sale.total },
+  );
 }
 
 export function paymentTotals(
@@ -67,18 +116,20 @@ export function paymentTotals(
   additionalPrices: SaleFee[],
   discounts: SaleDiscount[],
   method?: PaymentMethodSelection,
+  taxRate?: number,
 ) {
   const subtotal = orderTotal(order);
   const methodFeeConfig = customerPaymentFee(method);
-  const methodFeeAmount =
-    methodFeeConfig?.type === "percent"
-      ? percentageOf(subtotal, methodFeeConfig.amount)
-      : (methodFeeConfig?.amount ?? 0);
+  const isPercentageFee = methodFeeConfig?.type === "percent";
   return calculatePaymentTotals(
     subtotal,
     additionalPrices.reduce((sum, { value }) => sum + value, 0),
     discounts,
-    methodFeeAmount,
+    {
+      paymentFeeRate: isPercentageFee ? methodFeeConfig.amount : 0,
+      fixedFee: isPercentageFee ? 0 : methodFeeConfig?.amount,
+      taxRate,
+    },
   );
 }
 
@@ -121,10 +172,15 @@ export type SalePaymentChanges = PaymentAdjustments & {
   paid?: number;
 };
 
+function storedFixedFee(fees: readonly SaleFee[] | undefined, paymentFee?: number) {
+  const last = fees?.at(-1);
+  if (!paymentFee && last?.title === paymentFeeTitle) return last;
+}
+
 function recordedFixedFee(sale: Sale, method?: PaymentReceipt["method"]) {
-  const last = sale.additionalPrices?.at(-1);
+  const last = storedFixedFee(sale.additionalPrices, sale.paymentFee);
   const fee = method?.fee;
-  if (!sale.paymentFee && fee && fee.type !== "percent" && last?.title === paymentFeeTitle &&
+  if (last && fee && fee.type !== "percent" &&
     (last.value === fee.amount || sale.status === "pending")) return last;
 }
 
@@ -139,9 +195,10 @@ export function pendingPaymentDetails(
   method?: PaymentReceipt["method"],
   recordedMethod?: PaymentReceipt["method"],
   adjustments: PaymentAdjustments = {},
+  taxRate = sale.tax ?? 0,
 ) {
   const subtotal = sale.subtotal ?? orderTotal(order);
-  const taxAmount = percentageOf(subtotal, sale.tax ?? 0);
+  const taxChanged = taxRate !== (sale.tax ?? 0);
   const methodChanged = !!method && method.code !== recordedMethod?.code;
   const useCurrentFee = methodChanged || (sale.status === "pending" && !!method);
   const currentFee = customerPaymentFee(method);
@@ -169,21 +226,37 @@ export function pendingPaymentDetails(
   if (replacementDiscounts?.length === 0 && lastDiscount) {
     replacementDiscounts = [{ ...lastDiscount, value: 0 }];
   }
+  const paymentChanged = methodChanged || paymentFeeChanged || fixedFeeChanged || taxChanged || !!adjustments.additionalPrices || !!adjustments.discounts;
+  const recalculatePendingTotal = sale.status === "pending" && !!method && (paymentFee > 0 || taxRate > 0);
+  const fixedFeeInList = fixedFee || (storedFixedFee(fees, paymentFee)?.value ?? 0);
   const totals = calculatePaymentTotals(
     subtotal,
-    fees.reduce((sum, { value }) => sum + value, 0),
+    fees.reduce((sum, { value }) => sum + value, 0) - fixedFeeInList,
     discounts,
-    percentageOf(subtotal, paymentFee),
-    sale.tax,
+    {
+      paymentFeeRate: paymentFee,
+      fixedFee: fixedFeeInList,
+      taxRate,
+      recordedTotal: paymentChanged || recalculatePendingTotal ? undefined : sale.total,
+    },
   );
-  const totalChanged = methodChanged || paymentFeeChanged || fixedFeeChanged || !!adjustments.additionalPrices || !!adjustments.discounts;
+  const totalChanged = paymentChanged || (recalculatePendingTotal && totals.total !== sale.total);
   const updates: PendingPayment = {
     ...((methodChanged || paymentFeeChanged) && { paymentFee }),
+    ...(taxChanged && { ppn: taxRate }),
     ...(totalChanged && { total: totals.total }),
     ...(replacementFees && { additionalPrices: replacementFees }),
     ...(replacementDiscounts && { discounts: replacementDiscounts }),
   };
-  return { totals: { ...totals, total: totalChanged ? totals.total : sale.total }, taxAmount, fees, updates };
+  return {
+    totals: {
+      ...totals,
+      methodFeeAmount: totals.methodFeeAmount - fixedFeeInList,
+      total: totalChanged ? totals.total : sale.total,
+    },
+    fees,
+    updates,
+  };
 }
 
 function appendAdjustments(
@@ -244,12 +317,12 @@ export async function editPendingOrder(order: OrderDraft, transaction: Sale, met
   if (sales) data.set("sales", sales);
   const subtotal = orderTotal(order);
   const additionalPrices = transaction.additionalPrices ?? [];
+  const fixedFee = storedFixedFee(additionalPrices, transaction.paymentFee)?.value ?? 0;
   const { total } = calculatePaymentTotals(
     subtotal,
-    additionalPrices.reduce((sum, { value }) => sum + value, 0),
+    additionalPrices.reduce((sum, { value }) => sum + value, 0) - fixedFee,
     transaction.discounts ?? [],
-    percentageOf(subtotal, transaction.paymentFee ?? 0),
-    transaction.tax,
+    { paymentFeeRate: transaction.paymentFee, taxRate: transaction.tax, fixedFee },
   );
   appendPendingPayment(data, {
     methodCode,
@@ -469,8 +542,8 @@ export async function savePayment(
     throw new Error("Pilih metode pembayaran yang aktif.");
   if (!Number.isFinite(payment.total) || payment.total < 0)
     throw new Error("Total pembayaran tidak valid.");
-  if (payment.proof && payment.proof.size > MAX_PAYMENT_PROOF_SIZE) {
-    throw new Error("Bukti pembayaran maksimal 5 MB.");
+  if (payment.proof && payment.proof.size >= MAX_PAYMENT_PROOF_SIZE) {
+    throw new Error("Bukti pembayaran harus berukuran di bawah 100 KB.");
   }
   if (
     store?.id &&

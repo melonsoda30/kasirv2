@@ -53,6 +53,11 @@
   @apply grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-2 [&>[data-slot=button]]:min-w-0 [&>[data-slot=button]]:whitespace-normal;
 }
 
+[data-slot="drawer-content"][data-track-viewport] {
+  bottom: var(--drawer-viewport-bottom, 0px);
+  max-height: min(85dvh, calc(var(--drawer-viewport-height, 100dvh) - 0.75rem));
+}
+
 @utility payment-step-body {
   flex-basis: min(17rem, 38dvh);
 }

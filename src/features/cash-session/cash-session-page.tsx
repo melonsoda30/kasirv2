@@ -366,7 +366,7 @@ export function CashSessionPage({
                 Riwayat shift
               </h2>
               <div className="flex shrink-0 items-center gap-2">
-                <CashSessionExportDrawer dateRange={dateRange} />
+                <CashSessionExportDrawer />
                 <CashSessionFilterDrawer
                   filters={appliedFilters}
                   onSave={setAppliedFilters}

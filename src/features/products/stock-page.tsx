@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Package } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import { SkeletonImage } from "@/components/ui/skeleton-image";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -28,6 +30,7 @@ function StockQuantity({ quantity }: { quantity: number }) {
 }
 
 export function StockPage() {
+  const [search, setSearch] = useState("");
   const accountId = useAuthStore((state) => state.session?.account.account_id);
   const branchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
   const store = useAuthStore((state) => state.session?.account.store);
@@ -39,9 +42,26 @@ export function StockPage() {
   const catalog = useProductCatalog(branchId);
   const productsBySku = new Map(catalog.data?.map((product) => [product.id, product]));
   const branchNames = new Map(getAccountBranches(store).map(({ id, name }) => [id, name]));
+  const keyword = search.trim().toLocaleLowerCase("id-ID");
+  const visibleStock = (stock.data ?? []).filter(({ product_name, product_sku }) =>
+    product_name.toLocaleLowerCase("id-ID").includes(keyword) ||
+    product_sku.toLocaleLowerCase("id-ID").includes(keyword),
+  );
 
   return (
-    <PageLayout title="Stok" wide>
+    <PageLayout
+      title="Stok"
+      wide
+      headerToolbar={
+        <Input
+          type="search"
+          aria-label="Cari produk berdasarkan nama atau SKU"
+          placeholder="Cari nama produk atau SKU..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      }
+    >
       {stock.isPending && (
         <SkeletonGroup label="Memuat stok produk">
           <SkeletonRows rows={6} media="thumbnail" className="gap-3 sm:grid-cols-2 lg:grid-cols-3" />
@@ -63,9 +83,12 @@ export function StockPage() {
       {stock.isSuccess && stock.data.length === 0 && (
         <p>Belum ada data stok produk.</p>
       )}
-      {!!stock.data?.length && (
+      {stock.isSuccess && stock.data.length > 0 && visibleStock.length === 0 && (
+        <p role="status" className="py-12 text-center text-sm text-muted-foreground">Produk tidak ditemukan.</p>
+      )}
+      {visibleStock.length > 0 && (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {stock.data.map((item) => {
+          {visibleStock.map((item) => {
             const product = productsBySku.get(item.product_sku);
             const branchName = branchId === "all"
               ? item.branch_name?.trim() || product?.branchName || branchNames.get(item.branch_id) || item.branch_id

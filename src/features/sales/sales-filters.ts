@@ -23,7 +23,6 @@ export const defaultSalesFilters: SalesFilters = {
   product: "all",
 };
 
-export const paymentMethods = ["Tunai", "QRIS"];
 export const cashiers = ["Kasir 1", "Kasir 2"];
 
 export function salesFilterChips(

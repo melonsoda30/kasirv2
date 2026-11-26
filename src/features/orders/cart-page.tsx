@@ -28,13 +28,14 @@ import {
 } from "@/components/ui/drawer";
 import {
   getCashierBranch,
+  isAdminAccount,
   useAuthStore,
   usesCashierMode,
 } from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import {
+  fetchAllTransactions,
   fetchTransactionDetail,
-  fetchTransactions,
   transactionListParams,
 } from "@/features/sales/sales-api";
 import type { TransactionFilters } from "@/features/sales/sales-filters";
@@ -55,13 +56,16 @@ import {
   usePendingOrderEdit,
 } from "./pending-order-edit";
 
-export function CartPage({ sessionId }: { sessionId?: string }) {
+export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string }) {
   const account = useAuthStore((state) => state.session?.account);
   const draftOwner = useAuthStore((state) => orderOwner(state.session));
   const cashierBranchId = useAuthStore(
     (state) => getCashierBranch(state.session)?.id,
   );
   const branchId = cashierBranchId ?? account?.store?.branch_id;
+  const isCashier = useAuthStore((state) => usesCashierMode(state.session));
+  const isAdmin = isAdminAccount(account);
+  const sessionId = isAdmin && isCashier ? undefined : requestedSessionId;
   const catalog = useOrderProducts();
   const [detailId, setDetailId] = useState<string | null>(null);
   const editPending = usePendingOrderEdit(draftOwner, !!detailId);
@@ -101,9 +105,9 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
       branchId,
     ],
     queryFn: async ({ signal }) => {
-      const queue = await fetchTransactions(queueFilters, "", signal);
+      const queue = await fetchAllTransactions(queueFilters, "", signal);
       const sales = await Promise.all(
-        queue.sales.map((sale) => {
+        queue.map((sale) => {
           const wrongBranch =
             branchId &&
             branchId !== "all" &&
@@ -118,14 +122,13 @@ export function CartPage({ sessionId }: { sessionId?: string }) {
           return fetchTransactionDetail(sale.id, signal);
         }),
       );
-      return { ...queue, sales };
+      return { sales };
     },
     enabled: !!account && !!branchId,
   });
-  const isCashier = useAuthStore((state) => usesCashierMode(state.session));
   const orderPath = isCashier ? "/" : "/order";
   const title = isCashier ? "Antrean" : "Cart";
-  const headerAction = isCashier ? (
+  const headerAction = isCashier && !isAdmin ? (
     <CashSessionControl presentation="popover" />
   ) : undefined;
   const hasActiveDraft = useOrderStore(

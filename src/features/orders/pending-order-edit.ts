@@ -46,7 +46,7 @@ export function usePendingOrderEdit(owner: string | undefined, enabled: boolean)
       }
       const recordedCode = transaction.paymentCode?.trim()
       const code = recordedCode?.toLowerCase()
-      const savedMethod = findRecordedPaymentMethod(methods.data ?? [], recordedCode)
+      const savedMethod = findRecordedPaymentMethod(methods.data?.payments ?? [], recordedCode)
       let methodCode = savedMethod?.code ?? recordedCode
       if (!savedMethod && (code === 'cash' || code === 'tunai')) methodCode = 'cash'
       if (!savedMethod && code === 'qris') methodCode = 'qris'

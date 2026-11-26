@@ -49,6 +49,7 @@ export function OrderItemRow({
               unitPrice={item.unitPrice}
               inline
               quantity={item.quantity}
+              showSingleQuantity
             />
             {item.quantity > 1 && (
               <p className="mt-1 text-sm leading-tight font-bold tabular-nums">

@@ -256,8 +256,9 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
   const pendingOriginal = currentEdits?.original ?? (serverOrder && pendingOrderDraft(serverOrder));
   const pendingOrder = currentEdits?.order ?? pendingOriginal;
   const transactionBranch = serverOrder?.branchId ?? branchId ?? account?.store?.branch_id;
-  const cashSession = useCashSession();
-  const canTransact = cashSessionAllowsSales(cashSession.data, branchId) && !cashSession.isError;
+  const requiresShift = !isAdminAccount(account);
+  const cashSession = useCashSession(requiresShift);
+  const canTransact = !requiresShift || (cashSessionAllowsSales(cashSession.data, branchId) && !cashSession.isError);
   const catalog = useOrderProducts();
   const reminderScope = JSON.stringify([
     draftOwner,
@@ -360,7 +361,7 @@ export function OrderPage({ home = false, editTrxId, returnSession }: {
             </Button>
           )}
           <h1 className="flex-1 text-lg font-semibold">{editTrxId ? "Edit pesanan" : "Order"}</h1>
-          <CashSessionControl presentation="popover" ref={sessionControl} />
+          {requiresShift && <CashSessionControl presentation="popover" ref={sessionControl} />}
         </div>
         <div className="page-gutter">
           <Input

@@ -5,8 +5,11 @@ import { RouterProvider } from "@tanstack/react-router";
 import { router } from "./router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/query-client";
+import { refreshAuthSession } from "./lib/api";
 import { Toaster } from "sonner";
 import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
+
+void refreshAuthSession(true)?.catch(() => undefined);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -12,8 +12,14 @@ export type StoreSettings = {
   shift_mode?: "none" | "shift";
   cash_tolerance?: number;
   ppn: { value: number; is_active: boolean };
-  payment: (SettingItem & { type: string; fee_code: string | null; fee_bearer?: PaymentFeeBearer | null; image?: string })[];
-  fee: (Omit<SettingItem, "is_active"> & { type: string; fee: number; fee_type: string; is_active?: boolean })[];
+  payment: (SettingItem & {
+    type: string;
+    fee: number;
+    fee_type: string;
+    fee_active: boolean;
+    fee_bearer: PaymentFeeBearer;
+    image: string;
+  })[];
 };
 
 export const settingsUrl = "/admin/setting.php";
@@ -36,11 +42,10 @@ export async function fetchStoreSettings(signal?: AbortSignal): Promise<StoreSet
   const data = response.data;
   const shift = data.shift ?? [];
   const payment = data.payment ?? [];
-  const fee = data.fee ?? [];
-  if (Array.isArray(data) || !Array.isArray(shift) || !Array.isArray(payment) || !Array.isArray(fee)) {
+  if (Array.isArray(data) || !Array.isArray(shift) || !Array.isArray(payment)) {
     throw new Error("Format pengaturan toko dari server tidak valid.");
   }
-  return { ...data, shift, payment, fee };
+  return { ...data, shift, payment };
 }
 
 export function useStoreSettings() {

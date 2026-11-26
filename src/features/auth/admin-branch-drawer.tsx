@@ -2,8 +2,10 @@ import { useId, useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, Store } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { SelectCombobox } from "@/components/select-combobox";
 import { Button } from "@/components/ui/button";
+import { logoutSession } from "@/lib/api";
 import {
   Drawer,
   DrawerBody,
@@ -25,30 +27,36 @@ export function AdminBranchSelection({ account }: { account: Account }) {
   return (
     <AdminBranchDrawer
       account={account}
-      onLogout={() => {
-        useAuthStore.getState().clearSession();
+      onLogout={async () => {
+        try {
+          await logoutSession();
+        } catch {
+          toast.error("Gagal mengakhiri sesi di server.");
+        }
         void navigate({ to: "/login", search: { redirect: returnTo }, replace: true });
       }}
     />
   );
 }
 
-export function AdminBranchSwitcher({ getFormStatus, onApplied }: {
+export function AdminBranchSwitcher({ getFormStatus, onApplied, compact = false }: {
   getFormStatus?: () => AdminBranchChangeStatus;
   onApplied?: () => void;
+  compact?: boolean;
 } = {}) {
   const session = useAuthStore((state) => state.session);
   const active = getAdminBranch(session);
   if (!session || !active) return null;
-  return <AdminBranchDrawer account={session.account} active={active} getFormStatus={getFormStatus} onApplied={onApplied} />;
+  return <AdminBranchDrawer account={session.account} active={active} getFormStatus={getFormStatus} onApplied={onApplied} compact={compact} />;
 }
 
-function AdminBranchDrawer({ account, active, getFormStatus, onApplied, onLogout }: {
+function AdminBranchDrawer({ account, active, getFormStatus, onApplied, onLogout, compact = false }: {
   account: Account;
   active?: Branch;
   getFormStatus?: () => AdminBranchChangeStatus;
   onApplied?: () => void;
   onLogout?: () => void;
+  compact?: boolean;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -92,10 +100,10 @@ function AdminBranchDrawer({ account, active, getFormStatus, onApplied, onLogout
     >
       {active && (
         <DrawerTrigger asChild>
-          <Button type="button" variant="outline" size="sm" className="max-w-full min-w-0" aria-label={`Ganti cabang, cakupan aktif ${active.name}`} disabled={branches.length < 2}>
+          <Button type="button" variant="outline" size="sm" className={cn("max-w-full min-w-0", compact && "max-sm:w-9 max-sm:px-0")} aria-label={`Ganti cabang, cakupan aktif ${active.name}`} disabled={branches.length < 2}>
             <Store aria-hidden="true" />
-            <span className="truncate">{active.name}</span>
-            <ChevronDown aria-hidden="true" />
+            <span className={cn("truncate", compact && "max-sm:hidden")}>{active.name}</span>
+            <ChevronDown className={cn(compact && "max-sm:hidden")} aria-hidden="true" />
           </Button>
         </DrawerTrigger>
       )}

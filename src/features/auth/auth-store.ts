@@ -48,6 +48,7 @@ export interface AuthSession {
   cashierBranchId?: string
   token: string
   expiresAt: number
+  remainingDays?: number
   sessionId?: string
   refresh?: { token: string; expiresAt: number }
 }
@@ -103,6 +104,10 @@ export function getSuggestedAdminBranch(account: Account) {
 
 const key = 'kasirv2.auth'
 
+export function hasValidRefreshToken(session: AuthSession) {
+  return typeof session.refresh?.token === 'string' && !!session.refresh.token && session.refresh.expiresAt > Date.now()
+}
+
 function readSession(): AuthSession | null {
   for (const storage of [sessionStorage, localStorage]) {
     try {
@@ -110,7 +115,7 @@ function readSession(): AuthSession | null {
       if (!raw) continue
       const session = JSON.parse(raw) as AuthSession
       if (typeof session.token === 'string' && session.token &&
-          typeof session.expiresAt === 'number' && session.expiresAt > Date.now() &&
+          typeof session.expiresAt === 'number' && (session.expiresAt > Date.now() || hasValidRefreshToken(session)) &&
           typeof session.account?.account_username === 'string') return session
       storage.removeItem(key)
     } catch { /* An unavailable or invalid stored session requires login. */ }
@@ -120,14 +125,16 @@ function readSession(): AuthSession | null {
 
 export const useAuthStore = create<{
   session: AuthSession | null
+  sessionVersion: number
   setSession: (session: AuthSession, remember: boolean) => void
   setAdminBranch: (branchId: string) => boolean
   setCashierBranch: (branchId?: string) => boolean
-  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account' | 'adminBranchId' | 'cashierBranchId'>) => boolean
+  replaceSessionTokens: (previousToken: string, tokens: Omit<AuthSession, 'account' | 'adminBranchId' | 'cashierBranchId'>, account?: Account) => boolean
   clearSession: () => void
   updateAccount: (account: Partial<Account>) => void
 }>((set, get) => ({
   session: readSession(),
+  sessionVersion: 0,
   updateAccount: (account) => {
     const current = get().session
     if (!current) return
@@ -141,7 +148,7 @@ export const useAuthStore = create<{
     localStorage.removeItem(key)
     sessionStorage.removeItem(key)
     ;(remember ? localStorage : sessionStorage).setItem(key, JSON.stringify(session))
-    set({ session })
+    set(({ sessionVersion }) => ({ session, sessionVersion: sessionVersion + 1 }))
   },
   setAdminBranch: (branchId) => {
     const current = get().session
@@ -167,28 +174,33 @@ export const useAuthStore = create<{
     set({ session })
     return true
   },
-  replaceSessionTokens: (previousToken, tokens) => {
-    const { session, setSession } = get()
-    if (!session || session.token !== previousToken) return false
-    setSession({
-      account: session.account,
-      ...(session.adminBranchId && { adminBranchId: session.adminBranchId }),
-      ...(session.cashierBranchId && { cashierBranchId: session.cashierBranchId }),
-      ...tokens,
-    }, !!localStorage.getItem(key))
+  replaceSessionTokens: (previousToken, tokens, account) => {
+    const current = get().session
+    if (!current || current.token !== previousToken) return false
+    const session = { ...current, ...tokens, account: account ?? current.account }
+    if (account) {
+      const sameStore = (account.store?.id ?? account.event_id) === (current.account.store?.id ?? current.account.event_id)
+      if (!sameStore || !isAdminAccount(account) || !getAdminBranches(account).some(({ id }) => id === session.adminBranchId)) {
+        delete session.adminBranchId
+      }
+      if (!sameStore || !getCashierBranch(session)) delete session.cashierBranchId
+    }
+    const storage = localStorage.getItem(key) ? localStorage : sessionStorage
+    storage.setItem(key, JSON.stringify(session))
+    set({ session })
     return true
   },
   clearSession: () => {
     for (const storage of [localStorage, sessionStorage]) {
       try { storage.removeItem(key) } catch { /* Still clear the in-memory session. */ }
     }
-    set({ session: null })
+    set(({ sessionVersion }) => ({ session: null, sessionVersion: sessionVersion + 1 }))
   },
 }))
 
 export function getAuthSession() {
   const { session, clearSession } = useAuthStore.getState()
-  if (session && session.expiresAt <= Date.now()) {
+  if (session && session.expiresAt <= Date.now() && !hasValidRefreshToken(session)) {
     clearSession()
     return null
   }

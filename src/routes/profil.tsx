@@ -1,5 +1,6 @@
 ﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "cn";
+import { toast } from "sonner";
 import { PageLayout } from "../components/page-layout";
 import {
   ArrowRight,
@@ -45,7 +46,7 @@ import {
   useAuthStore,
 } from "@/features/auth/auth-store";
 import { useCashSession } from "@/features/cash-session/cash-session-query";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, logoutSession } from "@/lib/api";
 import { useId, useState, type ReactNode } from "react";
 
 export const Route = createFileRoute("/profil")({
@@ -137,7 +138,11 @@ function ProfilePage() {
     void navigate({ to: "/" });
   }
   async function logout() {
-    useAuthStore.getState().clearSession();
+    try {
+      await logoutSession();
+    } catch {
+      toast.error("Gagal mengakhiri sesi di server.");
+    }
     await navigate({ to: "/login", search: { redirect: "/" }, replace: true });
   }
   return (
@@ -173,6 +178,9 @@ function ProfilePage() {
               <p className="mt-1 break-all text-sm text-muted-foreground">
                 {account?.account_email || "-"}
               </p>
+              {session?.remainingDays !== undefined && (
+                <p className="mt-1 text-xs text-muted-foreground">Sesi berlaku {session.remainingDays} hari</p>
+              )}
             </div>
             <Button
               type="button"
@@ -284,7 +292,7 @@ function ProfilePage() {
         <button
           type="button"
           onClick={() => {
-            if (cashSession.data?.session) setConfirmLogout(true);
+            if (!isAdmin && cashSession.data?.session) setConfirmLogout(true);
             else void logout();
           }}
           className={cn(

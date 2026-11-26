@@ -1,9 +1,14 @@
+import { useId, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { format } from "date-fns";
 import { ExternalLink, FileText } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import { DatePickerRange } from "@/components/date-picker-range";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
+  DrawerBody,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -11,13 +16,19 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import { fetchSalesHistoryExport, fetchSalesHistoryTable } from "@/features/reports/report-api";
+import { fetchSalesHistoryExport, fetchSalesHistoryTable, type ReportDateFilters } from "@/features/reports/report-api";
 import { ReportDownloadButton } from "@/features/reports/report-download-button";
 
 export function SalesReportDrawer() {
+  const dateId = useId();
+  const [dateRange, setDateRange] = useState<DateRange>();
+  const dates = {
+    startDate: dateRange?.from && format(dateRange.from, "yyyy-MM-dd"),
+    endDate: dateRange?.to && format(dateRange.to, "yyyy-MM-dd"),
+  };
   const report = useMutation({
-    mutationFn: async ({ tab, status }: { tab: Window; status: HTMLParagraphElement }) => {
-      const html = await fetchSalesHistoryTable();
+    mutationFn: async ({ tab, status, dates }: { tab: Window; status: HTMLParagraphElement; dates: ReportDateFilters }) => {
+      const html = await fetchSalesHistoryTable(undefined, dates);
       if (tab.closed) return;
 
       const frame = status.ownerDocument.createElement("iframe");
@@ -54,7 +65,7 @@ export function SalesReportDrawer() {
     status.setAttribute("role", "status");
     status.textContent = "Memuat laporan penjualan…";
     page.body.replaceChildren(status);
-    report.mutate({ tab, status });
+    report.mutate({ tab, status, dates });
   }
 
   return (
@@ -69,8 +80,14 @@ export function SalesReportDrawer() {
           <DrawerTitle>Laporan penjualan</DrawerTitle>
           <DrawerDescription>Laporan transaksi selesai mencakup semua cabang yang bisa diakses akun Anda.</DrawerDescription>
         </DrawerHeader>
+        <DrawerBody>
+          <div className="space-y-2">
+            <label htmlFor={dateId} className="text-sm font-medium">Tanggal transaksi</label>
+            <DatePickerRange type="modal" id={dateId} value={dateRange} onChange={setDateRange} />
+          </div>
+        </DrawerBody>
         <DrawerFooter actions>
-          <ReportDownloadButton filename="laporan-penjualan.xlsx" loadRows={fetchSalesHistoryExport} variant="outline" />
+          <ReportDownloadButton filename="laporan-penjualan.xlsx" loadRows={() => fetchSalesHistoryExport(dates)} variant="outline" />
           <Button type="button" loading={report.isPending} onClick={viewReport}>
             <ExternalLink aria-hidden="true" /> Lihat
           </Button>

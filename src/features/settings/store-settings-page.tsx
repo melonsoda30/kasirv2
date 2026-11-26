@@ -10,7 +10,7 @@ import { refreshCashSessionData } from "@/features/cash-session/cash-session-que
 import { settingsUrl, useStoreSettings, type StoreSettings } from "./store-settings-query";
 import { request } from "@/lib/api";
 
-type SettingsPatch = Partial<Pick<StoreSettings, "shift" | "ppn" | "cash_tolerance" | "fee" | "payment">>;
+type SettingsPatch = Partial<Pick<StoreSettings, "shift" | "ppn" | "cash_tolerance" | "payment">>;
 type SettingsUpdate = (current: StoreSettings) => SettingsPatch;
 type QrisUpload = { file: File; paymentCode: string };
 export type SaveStoreSettings = (change: SettingsUpdate, upload?: QrisUpload) => Promise<void>;
@@ -43,11 +43,13 @@ function settingsBody(patch: SettingsPatch, upload?: QrisUpload) {
 export function StoreSettingsPage({
   title,
   headerAction,
+  compactHeader,
   allowEmptySettings = false,
   children,
 }: {
   title: string;
   headerAction?: (data: StoreSettings, update: SaveStoreSettings) => ReactNode;
+  compactHeader?: boolean;
   allowEmptySettings?: boolean;
   children: (
     data: StoreSettings,
@@ -62,7 +64,6 @@ export function StoreSettingsPage({
     shift: [],
     ppn: { value: 0, is_active: false },
     payment: [],
-    fee: [],
   } : undefined;
   const settings = data === null ? emptySettings : data;
   const { mutateAsync: update } = useMutation({
@@ -74,11 +75,7 @@ export function StoreSettingsPage({
       const current = cached === null ? emptySettings : cached;
       if (!current) throw new Error("Pengaturan toko belum dimuat.");
 
-      const changes = change(current);
-      const patch = {
-        ...changes,
-        ...(changes.fee && { fee: changes.fee.map((entry) => ({ ...entry, is_active: entry.is_active ?? true })) }),
-      };
+      const patch = change(current);
       if (!upload && !Object.keys(patch).length) return;
       const response = await request<SettingsResponse | null>({
         url: settingsUrl,
@@ -101,7 +98,7 @@ export function StoreSettingsPage({
       const paymentStoreId = response.data?.store_id || account?.store?.id || account?.event_id || current.store_id;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey, exact: true }),
-        ...(patch.payment || patch.fee || upload
+        ...(patch.payment || patch.ppn || upload
           ? [queryClient.invalidateQueries({ queryKey: paymentMethodsKey(paymentStoreId) })]
           : []),
         ...(patch.payment ? [queryClient.invalidateQueries({ queryKey: ["transactions", queryKey[2]] })] : []),
@@ -112,7 +109,7 @@ export function StoreSettingsPage({
   const save: SaveStoreSettings = (change, upload) => update({ change, upload });
 
   return (
-    <PageLayout title={title} prevLink="/profil" headerAction={settings && headerAction?.(settings, save)}>
+    <PageLayout title={title} prevLink="/profil" compactHeader={compactHeader} headerAction={settings && headerAction?.(settings, save)}>
       {isPending && (
         <SkeletonGroup label="Memuat pengaturan">
           <SkeletonRows />

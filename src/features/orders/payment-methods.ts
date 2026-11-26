@@ -9,20 +9,24 @@ const paymentRecord = z.object({
   payment_code: z.string().trim().min(1),
   payment_method: z.string(),
   payment_type: z.string(),
-  fee_code: z.string().nullish(),
   fee: z.coerce.number().nonnegative().nullish(),
   fee_type: z.string().nullish(),
   fee_bearer: z.string().nullish(),
   image: z.string().nullish(),
   is_active: z.boolean(),
   fee_active: z.boolean(),
-  fee_found: z.boolean(),
 });
 const paymentList = z.array(paymentRecord);
+const paymentSettings = z.union([
+  z.object({
+    payments: paymentList,
+    ppn: z.object({ value: z.number().min(0).max(100), is_active: z.boolean() }),
+  }),
+  paymentList.transform((payments) => ({ payments, ppn: undefined })),
+]);
 
-type PaymentMethod = PaymentReceipt["method"] & {
+export type PaymentMethod = PaymentReceipt["method"] & {
   image?: string;
-  missingFee: boolean;
 };
 
 export function findRecordedPaymentMethod(methods: readonly PaymentMethod[], recorded?: string) {
@@ -35,11 +39,12 @@ export const paymentMethodsKey = (storeId?: string) =>
   ["payment-methods", storeId] as const;
 
 type PaymentMethodScope = "active" | "all";
+type PaymentSettings = { payments: PaymentMethod[]; ppnRate?: number };
 
 export async function fetchPaymentMethods(
   signal?: AbortSignal,
   scope: PaymentMethodScope = "active",
-): Promise<PaymentMethod[]> {
+): Promise<PaymentSettings> {
   const response = await request<{
     status?: string;
     msg?: string;
@@ -50,17 +55,17 @@ export async function fetchPaymentMethods(
     params: { action: "list_payment" },
     signal,
   });
-  if (isEmptyListResponse(response)) return [];
+  if (isEmptyListResponse(response)) return { payments: [] };
   if (response?.status !== "success")
     throw new Error(response?.msg || "Gagal memuat metode pembayaran.");
-  const parsed = paymentList.safeParse(response.data);
+  const parsed = paymentSettings.safeParse(response.data);
   if (!parsed.success)
     throw new Error("Format metode pembayaran dari server tidak valid.");
 
-  return parsed.data.flatMap<PaymentMethod>((record) => {
-    const hasFee = !!record.fee_code;
-    if (scope === "active" && (!record.is_active || (hasFee && record.fee_found && !record.fee_active)))
-      return [];
+  const { ppn } = parsed.data;
+  const ppnRate = ppn && (ppn.is_active ? ppn.value : 0);
+  const payments = parsed.data.payments.flatMap<PaymentMethod>((record) => {
+    if (scope === "active" && !record.is_active) return [];
 
     const type = record.payment_type.trim().toLowerCase();
     const code = record.payment_code.toLowerCase();
@@ -78,14 +83,14 @@ export async function fetchPaymentMethods(
             ? paymentImageUrl(image, "transaksi")
             : undefined,
         fee:
-          hasFee && record.fee_found && record.fee_active && record.fee != null
+          record.fee_active && record.fee != null
             ? { amount: record.fee, type: record.fee_type ?? "" }
             : undefined,
         feeBearer: record.fee_bearer,
-        missingFee: hasFee && !record.fee_found,
       },
     ];
   });
+  return { payments, ...(ppnRate !== undefined && { ppnRate }) };
 }
 
 export function usePaymentMethods(enabled = true, refetchOnMount?: "always", scope: PaymentMethodScope = "active") {

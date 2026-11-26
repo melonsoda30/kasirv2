@@ -11,14 +11,19 @@ import {
   useAuthStore,
 } from "@/features/auth/auth-store";
 import { login, loginError } from "@/features/auth/login";
+import { refreshAuthSession } from "@/lib/api";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
     redirect: safeRedirect(search.redirect),
   }),
   beforeLoad: ({ search }) => {
-    if (getAuthSession())
-      throw redirect({ href: safeRedirect(search.redirect), replace: true });
+    const check = () => {
+      if (getAuthSession())
+        throw redirect({ href: safeRedirect(search.redirect), replace: true });
+    };
+    const refresh = refreshAuthSession();
+    return refresh ? refresh.then(check, check) : check();
   },
   component: LoginPage,
 });
@@ -38,7 +43,7 @@ function LoginPage() {
     if (busy || !username.trim() || !password) return;
     setBusy(true);
     try {
-      const session = await login(username, password, remember);
+      const session = await login(username, password);
       useAuthStore.getState().setSession(session, remember);
       setPassword("");
       await navigate({ href: safeRedirect(search.redirect), replace: true });

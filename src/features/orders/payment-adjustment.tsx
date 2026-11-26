@@ -41,7 +41,9 @@ export function PaymentAdjustment({
         className="modal-body space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) onSave(name.trim(), amount, type);
+          if (!valid) return;
+          const title = name.trim().replace(/(^|\s)\p{L}/gu, (letter) => letter.toUpperCase());
+          onSave(title, amount, type);
         }}
       >
         <label className="grid gap-2 font-medium">

@@ -79,7 +79,6 @@ export function AddPaymentMethod({ payment, update }: {
 
     const { cash, suffix } = draftCodes.current;
     const code = type === "cash" ? cash : `${type}_${suffix}`;
-    const feeCode = hasFee ? `${title.toLowerCase().replace(/\s+/g, "_")}_${type}` : "";
     const qrisUpload = type === "qris" && file ? { file, paymentCode: code } : undefined;
     setError("");
     setPending(true);
@@ -88,9 +87,9 @@ export function AddPaymentMethod({ payment, update }: {
         if (current.payment.some((entry) => entry.code.toLowerCase() === code)) {
           throw new Error("Metode ini sudah tersedia. Buka ulang form sebelum menambah metode lain.");
         }
-        const feeCodeUsed = current.fee.some(({ code }) => code.toLowerCase() === feeCode)
-          || current.payment.some(({ fee_code }) => fee_code?.toLowerCase() === feeCode);
-        if (feeCode && feeCodeUsed) {
+        const normalizedTitle = title.toLowerCase().replace(/\s+/g, "_");
+        if (hasFee && current.payment.some((entry) => entry.type === type &&
+          entry.title.trim().toLowerCase().replace(/\s+/g, "_") === normalizedTitle)) {
           throw new Error("Nama ini sudah dipakai untuk jenis metode tersebut. Gunakan nama lain.");
         }
         return {
@@ -98,20 +97,13 @@ export function AddPaymentMethod({ payment, update }: {
             code,
             title,
             type,
-            fee_code: feeCode || null,
-            ...(hasFee && isPaymentFeeBearer(feeBearer) && { fee_bearer: feeBearer }),
+            fee: hasFee ? amount : 0,
+            fee_type: hasFee && feeType === "percent" ? "percent" : "flat",
+            fee_active: hasFee,
+            fee_bearer: hasFee && isPaymentFeeBearer(feeBearer) ? feeBearer : "store",
+            image: "",
             is_active: true,
           }],
-          ...(feeCode && {
-            fee: [...current.fee, {
-              code: feeCode,
-              title,
-              type,
-              fee: amount,
-              fee_type: feeType === "fixed" ? "flat" : "percent",
-              is_active: true,
-            }],
-          }),
         };
       }, qrisUpload);
       toast.success("Metode pembayaran ditambahkan.");

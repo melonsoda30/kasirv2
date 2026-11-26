@@ -12,7 +12,9 @@ export function PageLayout({
   prevLink,
   prevSearch,
   headerAction,
-  branchSwitcher = <AdminBranchSwitcher />,
+  headerToolbar,
+  compactHeader = false,
+  branchSwitcher = <AdminBranchSwitcher compact={compactHeader} />,
   wide = false,
 }: {
   title?: string;
@@ -20,13 +22,15 @@ export function PageLayout({
   prevLink?: LinkProps['to'];
   prevSearch?: LinkProps['search'];
   headerAction?: ReactNode;
+  headerToolbar?: ReactNode;
+  compactHeader?: boolean;
   branchSwitcher?: ReactNode;
   wide?: boolean;
 }) {
   return (
     <>
-      {(title || prevLink || headerAction) && (
-        <header className="border-b bg-background pt-[env(safe-area-inset-top)]">
+      {(title || prevLink || headerAction || headerToolbar) && (
+        <header className={cn("border-b bg-background pt-[env(safe-area-inset-top)]", headerToolbar && "sticky top-0 z-20")}>
           <div className={cn("page-gutter mx-auto flex min-h-12 items-center gap-2", !wide && "max-w-[40rem]")}>
             {prevLink && (
               <Button asChild variant="ghost" size="icon">
@@ -35,10 +39,13 @@ export function PageLayout({
                 </Link>
               </Button>
             )}
-            {title && <h1 className="min-w-0 flex-1 text-lg font-semibold tracking-tight">{title}</h1>}
+            {title && <h1 className={cn("min-w-0 flex-1 text-lg font-semibold tracking-tight", compactHeader && "truncate max-[360px]:text-base")}>{title}</h1>}
             {title && <div className="min-w-0 max-w-[45%] empty:hidden">{branchSwitcher}</div>}
             {headerAction && <div className="ml-auto shrink-0">{headerAction}</div>}
           </div>
+          {headerToolbar && (
+            <div className={cn("page-gutter mx-auto pb-3", !wide && "max-w-[40rem]")}>{headerToolbar}</div>
+          )}
         </header>
       )}
       <main id="main-content" className={cn("page-gutter mx-auto w-full min-w-0 flex-1 py-4 sm:py-6", !wide && "max-w-[40rem]")}>

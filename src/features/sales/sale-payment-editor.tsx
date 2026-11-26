@@ -43,7 +43,7 @@ export function SalePaymentEditor({
   onSave: (changes: SalePaymentChanges) => void;
 }) {
   const query = usePaymentMethods(true, "always");
-  const methods = query.data ?? [];
+  const methods = query.data?.payments ?? [];
   const recorded = findRecordedPaymentMethod(
     methods,
     sale.paymentCode ?? sale.paymentMethod,

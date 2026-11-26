@@ -29,7 +29,9 @@ useAuthStore.subscribe((state, previous) => {
   if (!previousAccount) return
 
   const account = state.session?.account
-  if (!account || account.event_level !== previousAccount.event_level ||
+  if (!account || state.sessionVersion !== previous.sessionVersion ||
+    account.account_id !== previousAccount.account_id || account.event_id !== previousAccount.event_id ||
+    account.event_level !== previousAccount.event_level ||
     isAdminAccount(account) !== isAdminAccount(previousAccount)) {
     queryClient.clear()
     void router.invalidate()

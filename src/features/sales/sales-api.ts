@@ -1,7 +1,8 @@
+import { isAxiosError } from "axios";
 import { API_BASE_URL, isEmptyListResponse, request } from "../../lib/api";
 import type { TransactionFilters } from "./sales-filters";
-import { summarizeSales } from "./sales-summary";
-import type { Sale, SaleDiscount, SaleFee, SaleItem, SaleStatus, SalesSummary } from "./sales-summary";
+import { salesBreakdownStatuses, summarizeSales } from "./sales-summary";
+import type { Sale, SaleDiscount, SaleFee, SaleItem, SaleStatus, SalesStatusBreakdown, SalesSummary } from "./sales-summary";
 
 interface SummaryEntry {
   title: string;
@@ -12,9 +13,9 @@ interface TransactionItemData {
   menu_id?: string | null;
   name: string;
   img: string;
-  price: string | number;
+  price?: string | number | null;
   qty: string | number;
-  price_total: string | number;
+  price_total?: string | number | null;
   category?: string;
   description?: string;
   discount_type?: string;
@@ -27,13 +28,25 @@ interface TransactionRefundData {
   reason?: string | null;
 }
 
+type StatusBreakdownData = Partial<Record<keyof SalesStatusBreakdown, {
+  count: string | number;
+  total: string | number;
+}>>;
+
+type CashSummaryData = { received?: string | number | null; change?: string | number | null };
+
 interface TransactionListData {
-  summary: {
+  summary?: {
     transaction: SummaryEntry[];
     summary: SummaryEntry[];
     payments: SummaryEntry[];
+    cash?: CashSummaryData;
     "sales-promotion"?: SummaryEntry[];
+    status_breakdown?: StatusBreakdownData;
   } | [];
+  cash?: CashSummaryData;
+  status_breakdown?: StatusBreakdownData;
+  paging?: { has_more: boolean; next_cursor?: string | null };
   data_trx: {
     trx_id: string;
     trx_kasir: string;
@@ -64,6 +77,8 @@ type TransactionListResponse =
   | []
   | { status: string; msg?: string; data?: TransactionListData | [] };
 
+type TransactionPage = { sales: Sale[]; summary: SalesSummary; nextCursor?: string };
+
 function amount(value: number | string) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -73,6 +88,19 @@ function optionalAmount(value: string | number | null | undefined) {
   if (value === undefined || value === null || String(value).trim() === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function mapStatusBreakdown(data?: StatusBreakdownData): SalesStatusBreakdown | undefined {
+  const breakdown: SalesStatusBreakdown = {};
+  for (const status of salesBreakdownStatuses) {
+    const entry = data?.[status];
+    const count = optionalAmount(entry?.count);
+    const total = optionalAmount(entry?.total);
+    if (count !== undefined && Number.isInteger(count) && count >= 0 && total !== undefined) {
+      breakdown[status] = { count, total };
+    }
+  }
+  return Object.keys(breakdown).length ? breakdown : undefined;
 }
 
 function paymentLabel(value: string) {
@@ -89,12 +117,14 @@ function transactionAsset(path: string) {
 }
 
 function mapTransactionItem(item: TransactionItemData): SaleItem {
+  const unitPrice = optionalAmount(item.price);
+  const lineTotal = optionalAmount(item.price_total);
   return {
     productId: item.product_id?.trim() || item.menu_id?.trim() || "",
     title: item.name.trim(),
     quantity: amount(item.qty),
-    unitPrice: amount(item.price),
-    lineTotal: amount(item.price_total),
+    ...(unitPrice !== undefined && { unitPrice }),
+    ...(lineTotal !== undefined && { lineTotal }),
     image: transactionAsset(item.img),
     ...(item.category !== undefined && { category: item.category }),
     ...(item.description !== undefined && { description: item.description }),
@@ -103,7 +133,7 @@ function mapTransactionItem(item: TransactionItemData): SaleItem {
   };
 }
 
-export function mapTransactionList(response: TransactionListResponse | null) {
+export function mapTransactionList(response: TransactionListResponse | null, allowMissingSummary = false): TransactionPage {
   if (isEmptyListResponse(response)) return { sales: [], summary: summarizeSales([]) };
   let data: TransactionListData | [] | null | undefined;
   if (response && typeof response === "object" && "status" in response) {
@@ -119,13 +149,17 @@ export function mapTransactionList(response: TransactionListResponse | null) {
     !Array.isArray(data.data_trx)
   )
     throw new Error("Format daftar transaksi dari server tidak valid.");
-  const summaryData = data.summary;
+  const cursor = data.paging?.next_cursor;
+  const paging = data.paging?.has_more === true && typeof cursor === "string" && cursor !== ""
+    ? { nextCursor: cursor }
+    : {};
+  const summaryData = allowMissingSummary ? data.summary ?? [] : data.summary;
   if (Array.isArray(summaryData) && summaryData.length > 0) {
     throw new Error("Format daftar transaksi dari server tidak valid.");
   }
   if (!Array.isArray(summaryData) && (!summaryData || !Array.isArray(summaryData.transaction) ||
     !Array.isArray(summaryData.summary) || !Array.isArray(summaryData.payments))) {
-    if (data.data_trx.length === 0) return { sales: [], summary: summarizeSales([]) };
+    if (data.data_trx.length === 0) return { sales: [], summary: summarizeSales([]), ...paging };
     throw new Error("Format daftar transaksi dari server tidak valid.");
   }
   const statuses: Record<string, SaleStatus> = {
@@ -190,21 +224,37 @@ export function mapTransactionList(response: TransactionListResponse | null) {
         : [],
     };
   });
-  if (Array.isArray(summaryData)) return { sales, summary: summarizeSales(sales) };
+  const statusBreakdown = mapStatusBreakdown(data.status_breakdown ?? (
+    Array.isArray(summaryData) ? undefined : summaryData.status_breakdown
+  ));
+  const statusSummary = statusBreakdown ? { statusBreakdown } : {};
+  const cashData = data.cash ?? (Array.isArray(summaryData) ? undefined : summaryData.cash);
+  const received = optionalAmount(cashData?.received);
+  const change = optionalAmount(cashData?.change);
+  const cashSummary = received === undefined && change === undefined ? {} : {
+    cash: {
+      ...(received !== undefined && { received }),
+      ...(change !== undefined && { change }),
+    },
+  };
+  if (Array.isArray(summaryData)) return { sales, summary: { ...summarizeSales(sales), ...statusSummary, ...cashSummary }, ...paging };
   const value = (entries: SummaryEntry[], title: string) =>
     amount(entries.find((entry) => entry.title === title)?.value ?? 0);
   const promotions = summaryData["sales-promotion"];
+  const paymentTotals: [string, number][] = [];
+  for (const entry of summaryData.payments) {
+    const title = entry.title.trim().toLowerCase();
+    if (["dibayaran", "dibayarkan", "kembali"].includes(title)) continue;
+    paymentTotals.push([paymentLabel(entry.title), amount(entry.value)]);
+  }
   const summary: SalesSummary = {
     transactions: value(summaryData.transaction, "transaction"),
     productsSold: value(summaryData.transaction, "items"),
     total: value(summaryData.summary, "sellings"),
     change: value(summaryData.summary, "changes"),
-    paymentTotals: Object.fromEntries(
-      summaryData.payments.map((entry) => [
-        paymentLabel(entry.title),
-        amount(entry.value),
-      ]),
-    ),
+    paymentTotals: Object.fromEntries(paymentTotals),
+    ...cashSummary,
+    ...statusSummary,
     ...(Array.isArray(promotions) && {
       salesPromotions: promotions.map(({ title, value }) => ({
         name: title,
@@ -212,7 +262,7 @@ export function mapTransactionList(response: TransactionListResponse | null) {
       })),
     }),
   };
-  return { sales, summary };
+  return { sales, summary, ...paging };
 }
 
 function formatApiDate(date: Date | undefined) {
@@ -223,6 +273,7 @@ function formatApiDate(date: Date | undefined) {
 export function transactionListParams(
   filters: TransactionFilters,
   search: string,
+  cursor?: string,
 ) {
   const keyword = search.trim();
   const cashier = filters.cashier?.trim();
@@ -242,6 +293,7 @@ export function transactionListParams(
     ...(status && status !== "all" && { status }),
     ...(startDate && { startDate }),
     ...(endDate && { endDate }),
+    ...(cursor && { cursor }),
   };
 }
 
@@ -249,14 +301,46 @@ export async function fetchTransactions(
   filters: TransactionFilters,
   search: string,
   signal?: AbortSignal,
+  cursor?: string,
 ) {
   const response = await request<TransactionListResponse | null>({
     url: "/transaction/trx",
     method: "GET",
-    params: transactionListParams(filters, search),
+    params: transactionListParams(filters, search, cursor),
     signal,
   });
-  return mapTransactionList(response);
+  return mapTransactionList(response, !!cursor);
+}
+
+export function isInvalidTransactionCursor(error: unknown) {
+  if (!isAxiosError<{ msg?: string; message?: string } | string>(error) || error.response?.status !== 400) return false;
+  const data = error.response.data;
+  const message = typeof data === "string" ? data : data?.msg ?? data?.message;
+  return message === "Cursor tidak valid";
+}
+
+export function flattenTransactionPages(pages: readonly TransactionPage[]): Sale[] {
+  const sales = new Map<string, Sale>();
+  for (const page of pages) {
+    for (const sale of page.sales) {
+      if (!sales.has(sale.id)) sales.set(sale.id, sale);
+    }
+  }
+  return [...sales.values()];
+}
+
+export async function fetchAllTransactions(filters: TransactionFilters, search: string, signal?: AbortSignal) {
+  const pages: TransactionPage[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await fetchTransactions(filters, search, signal, cursor);
+    pages.push(page);
+    cursor = page.nextCursor;
+    if (!cursor || cursors.has(cursor)) break;
+    cursors.add(cursor);
+  } while (cursor);
+  return flattenTransactionPages(pages);
 }
 
 type TransactionDetailData = TransactionListData["data_trx"][number] & {
@@ -267,7 +351,7 @@ type TransactionDetailData = TransactionListData["data_trx"][number] & {
   trx_additional_price?: StoredAdjustment[] | null;
   trx_discount?: (StoredAdjustment & { type?: string })[] | null;
   trx_nominal: string | number;
-  trx_upload_file: string;
+  trx_upload_file?: string | null;
   trx_products: TransactionItemData[];
 };
 
@@ -319,11 +403,9 @@ export function mapTransactionDetail(
         return discount && (type === "fixed" || type === "percent") ? [{ ...discount, type }] : [];
       })
     : undefined;
-  const proofType = /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(
-    response.trx_upload_file,
-  )
-    ? "image"
-    : "document";
+  const proofPath = response.trx_upload_file?.trim() ?? "";
+  const proofUrl = transactionAsset(proofPath);
+  const proofType = /\.(jpg|jpeg|png|webp|gif)([?#]|$)/i.test(proofPath) ? "image" : "document";
   return {
     ...sale,
     paymentCode: response.trx_payment,
@@ -337,14 +419,7 @@ export function mapTransactionDetail(
     ...(response.trx_ppn !== undefined && { tax: amount(response.trx_ppn) }),
     paid: amount(response.trx_nominal),
     items: response.trx_products.map(mapTransactionItem),
-    paymentProof:
-      response.trx_payment.toLowerCase() === "qris" && response.trx_upload_file
-        ? {
-            url: transactionAsset(response.trx_upload_file),
-            name: "Buka bukti pembayaran",
-            type: proofType,
-          }
-        : undefined,
+    paymentProof: proofUrl ? { url: proofUrl, name: "Buka bukti pembayaran", type: proofType } : undefined,
   };
 }
 

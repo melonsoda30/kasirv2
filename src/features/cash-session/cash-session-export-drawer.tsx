@@ -17,12 +17,12 @@ import {
 import { ReportDownloadButton } from "@/features/reports/report-download-button";
 import { fetchCashSessionExport } from "./cash-session-api";
 
-export function CashSessionExportDrawer({ dateRange }: { dateRange?: DateRange }) {
+export function CashSessionExportDrawer() {
   const id = useId();
-  const [draft, setDraft] = useState(dateRange);
+  const [draft, setDraft] = useState<DateRange>();
 
   return (
-    <Drawer onOpenChange={(open) => { if (open) setDraft(dateRange); }}>
+    <Drawer>
       <DrawerTrigger asChild>
         <Button type="button" variant="outline" size="sm" aria-label="Laporan tutup buku">
           <FileText aria-hidden="true" /> Laporan

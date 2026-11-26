@@ -9,6 +9,7 @@ import {
 import { useEffect } from 'react';
 import { getAdminBranch, getAuthSession, isAdminAccount, isAdminMode, isCashierEventLevel, useAuthStore } from '@/features/auth/auth-store';
 import { AdminBranchSelection } from '@/features/auth/admin-branch-drawer';
+import { refreshAuthSession } from '@/lib/api';
 import type { QueryClient } from "@tanstack/react-query";
 import { MobileLayout } from "../components/mobile-layout";
 import { Button } from "../components/ui/button";
@@ -30,19 +31,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     beforeLoad: ({ location, matches }) => {
       if (location.pathname === '/login') return
 
-      const session = getAuthSession()
-      if (!session) {
-        throw redirect({ to: '/login', search: { redirect: location.href }, replace: true })
-      }
+      const check = () => {
+        const session = getAuthSession()
+        if (!session) {
+          throw redirect({ to: '/login', search: { redirect: location.href }, replace: true })
+        }
 
-      const isCashier = isCashierEventLevel(session.account.event_level)
-      if (!isCashier && isAdminAccount(session.account)) return
+        const isCashier = isCashierEventLevel(session.account.event_level)
+        if (!isCashier && isAdminAccount(session.account)) return
 
-      const routeId = matches.at(-1)?.routeId
-      const allowedRoutes = isCashier ? cashierRoutes : profileRoutes
-      if (!routeId || !allowedRoutes.has(routeId)) {
-        throw redirect({ to: isCashier ? '/' : '/profil', replace: true })
+        const routeId = matches.at(-1)?.routeId
+        const allowedRoutes = isCashier ? cashierRoutes : profileRoutes
+        if (!routeId || !allowedRoutes.has(routeId)) {
+          throw redirect({ to: isCashier ? '/' : '/profil', replace: true })
+        }
       }
+      const refresh = refreshAuthSession()
+      return refresh ? refresh.then(check, check) : check()
     },
     component: RootLayout,
     notFoundComponent: () => (
@@ -75,8 +80,7 @@ function RootLayout() {
   const session = useAuthStore((state) => state.session)
   useEffect(() => {
     if (!session) return
-    // Recheck on focus and periodically so expired sessions cannot keep an open page.
-    const check = () => { getAuthSession() }
+    const check = () => { void refreshAuthSession()?.catch(() => undefined) }
     const timer = window.setInterval(check, 30_000)
     window.addEventListener('focus', check)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', check) }

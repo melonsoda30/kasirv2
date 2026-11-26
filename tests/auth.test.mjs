@@ -65,12 +65,12 @@ test('login contract, bearer headers, remembered sessions, expiry and unauthoriz
     sent = config
     return { config, status: 200, statusText: 'OK', headers: {}, data: response }
   }
-  const session = await login(' tester ', 'test-password', false)
-  assert.equal(sent.url, '/login')
+  const session = await login(' tester ', 'test-password')
+  assert.equal(sent.url, '/login.php')
   assert.equal(sent.method, 'post')
   assert.equal(sent.baseURL, 'https://kasirv2.dhcsupplement.co.id/API')
   assert.deepEqual(Object.fromEntries(sent.data.entries()), {
-    action: 'login', username: 'tester', password: 'test-password', rememberme: '0',
+    action: 'login', username: 'tester', password: 'test-password',
   })
   assert.equal(sent.headers.get('Authorization'), undefined)
   assert.ok(Math.abs(session.expiresAt - Date.now() - 86_400_000) < 1000)
@@ -81,7 +81,7 @@ test('login contract, bearer headers, remembered sessions, expiry and unauthoriz
   response.data.refresh = {
     token: 'test-refresh-token', expires_at: '2026-12-19 09:55:50', expires_in: 2_592_000,
   }
-  const updatedSession = await login('tester', 'test-password', false)
+  const updatedSession = await login('tester', 'test-password')
   assert.equal(updatedSession.token, 'test-access-token')
   assert.equal(updatedSession.sessionId, 'test-session')
   assert.ok(Math.abs(updatedSession.expiresAt - Date.now() - 3_600_000) < 1000)
@@ -112,8 +112,7 @@ test('login contract, bearer headers, remembered sessions, expiry and unauthoriz
   useAuthStore.getState().setSession(updatedSession, false)
   await api.get('/protected-test')
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-access-token')
-  await login('tester', 'test-password', true)
-  assert.equal(sent.data.get('rememberme'), '1')
+  await login('tester', 'test-password')
   assert.equal(sent.headers.get('Authorization'), undefined)
 
   useAuthStore.getState().setSession(session, true)
@@ -128,15 +127,122 @@ test('login contract, bearer headers, remembered sessions, expiry and unauthoriz
     throw new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined,
       { config, status: 401, statusText: 'Unauthorized', headers: {}, data: {} })
   }
-  await assert.rejects(login('tester', 'incorrect', false))
+  await assert.rejects(login('tester', 'incorrect'))
   assert.ok(getAuthSession(), 'A failed login must not clear an existing session')
   await assert.rejects(api.get('/protected-test'))
   assert.equal(getAuthSession(), null)
   assert.equal(localStorage.values.size, 0)
 
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: { message: 'Invalid credentials' } })
-  await assert.rejects(login('tester', 'incorrect', false), /Invalid credentials/)
+  await assert.rejects(login('tester', 'incorrect'), /Invalid credentials/)
   assert.equal(getAuthSession(), null)
+})
+
+test('session refresh rotates once for concurrent 401s and replays requests with the new access token', async () => {
+  const account = { account_id: '1', account_username: 'tester', account_role: 'admin', event_id: 'EVT-001',
+    store: { id: 'EVT-001', all_branches: true, branch_id: 'all', branches: [{ id: 'BC-001' }, { id: 'BC-002' }] } }
+  const nextStore = { ...account.store, name: 'Toko', branches: [{ id: 'BC-002', name: 'Cabang 2' }] }
+  const payload = { status: 'success', data: {
+    user: { id: '1', username: 'tester', fullname: 'Nama baru', level: 'Administrator', level_slug: 'admin', role: 'admin' },
+    store: nextStore, token: 'new-access', expired: 30,
+    access: { token: 'new-access', expires_in: 3600, session_id: 'same-session' },
+    refresh: { token: 'new-refresh', expires_in: 2592000 },
+  } }
+  const session = { account, token: 'old-access', expiresAt: Date.now() + 60_000, sessionId: 'same-session',
+    refresh: { token: 'old-refresh', expiresAt: Date.now() + 120_000 }, adminBranchId: 'BC-001', cashierBranchId: 'BC-002' }
+  useAuthStore.getState().setSession(session, true)
+  let rotations = 0
+  const attempts = []
+  function unauthorized(config) {
+    return new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined,
+      { config, status: 401, headers: {}, data: {} })
+  }
+  api.defaults.adapter = async (config) => {
+    const authorization = config.headers.get('Authorization')
+    if (config.url === '/login.php') {
+      rotations++
+      assert.equal(config.method, 'post')
+      assert.equal(authorization, undefined)
+      assert.deepEqual(Object.fromEntries(config.data), { action: 'refresh', refresh_token: 'old-refresh' })
+      return { config, status: 200, headers: {}, data: payload }
+    }
+    attempts.push([config.url, authorization])
+    if (authorization === 'Bearer old-access') throw unauthorized(config)
+    if (config.url === '/second') assert.equal(config.data.get('quantity'), '2')
+    return { config, status: 200, headers: {}, data: {} }
+  }
+  try {
+    const data = new FormData()
+    data.set('quantity', '2')
+    await Promise.all([api.get('/first'), api.post('/second', data)])
+    assert.equal(rotations, 1)
+    for (const url of ['/first', '/second']) {
+      assert.deepEqual(attempts.filter(([path]) => path === url), [[url, 'Bearer old-access'], [url, 'Bearer new-access']])
+    }
+    const rotated = getAuthSession()
+    assert.equal(rotated.sessionId, 'same-session')
+    assert.equal(rotated.remainingDays, 30)
+    assert.equal(rotated.refresh.token, 'new-refresh')
+    assert.equal(rotated.account.account_fullname, 'Nama baru')
+    assert.equal(rotated.adminBranchId, undefined)
+    assert.equal(rotated.cashierBranchId, 'BC-002')
+    assert.deepEqual(JSON.parse(localStorage.getItem('kasirv2.auth')), rotated)
+    assert.equal(sessionStorage.getItem('kasirv2.auth'), null)
+
+    useAuthStore.getState().setSession({ ...session, expiresAt: Date.now() - 1 }, false)
+    assert.ok(getAuthSession(), 'expired access can be restored with a valid refresh token')
+    attempts.length = 0
+    await api.get('/first')
+    assert.equal(rotations, 2)
+    assert.deepEqual(attempts, [['/first', 'Bearer new-access']])
+    assert.equal(JSON.parse(sessionStorage.getItem('kasirv2.auth')).refresh.token, 'new-refresh')
+
+    useAuthStore.getState().setSession({ ...session, expiresAt: Date.now() - 1 }, false)
+    api.defaults.adapter = async () => { throw new AxiosError('Network error', 'ERR_NETWORK') }
+    await assert.rejects(api.get('/first'), /Network error/)
+    assert.equal(getAuthSession().refresh.token, 'old-refresh')
+
+    useAuthStore.getState().setSession(session, false)
+    api.defaults.adapter = async (config) => { throw unauthorized(config) }
+    await assert.rejects(api.get('/first'))
+    assert.equal(getAuthSession(), null)
+    assert.equal(sessionStorage.getItem('kasirv2.auth'), null)
+  } finally {
+    useAuthStore.getState().clearSession()
+  }
+})
+
+test('logout clears the local session and revokes a token rotated by a pending refresh', async () => {
+  const { logoutSession, refreshAuthSession } = await import('../src/lib/api.ts')
+  const account = { account_id: '1', account_username: 'tester' }
+  const session = { account, token: 'old-access', expiresAt: Date.now() + 60_000,
+    refresh: { token: 'old-refresh', expiresAt: Date.now() + 120_000 }, sessionId: 'same-session' }
+  useAuthStore.getState().setSession(session, false)
+  let finishRefresh
+  const waitForLogout = new Promise(resolve => { finishRefresh = resolve })
+  const requests = []
+  api.defaults.adapter = async (config) => {
+    const action = config.data.get('action')
+    requests.push([config.url, action, config.headers.get('Authorization')])
+    if (action === 'refresh') {
+      await waitForLogout
+      return { config, status: 200, headers: {}, data: { status: 'success', data: {
+        user: { id: '1', username: 'tester' }, store: { id: 'EVT-001' },
+        access: { token: 'new-access', expires_in: 3600, session_id: 'same-session' },
+        refresh: { token: 'new-refresh', expires_in: 86400 },
+      } } }
+    }
+    return { config, status: 200, headers: {}, data: { status: 'success' } }
+  }
+  const refreshing = refreshAuthSession(true)
+  const logout = logoutSession()
+  assert.equal(getAuthSession(), null)
+  finishRefresh()
+  await Promise.all([refreshing, logout])
+  await logoutSession()
+  assert.equal(getAuthSession(), null)
+  assert.equal(sessionStorage.getItem('kasirv2.auth'), null)
+  assert.deepEqual(requests, [['/login.php', 'refresh', undefined], ['/login.php', 'logout', 'Bearer new-refresh']])
 })
 
 test('return paths accept internal pages and reject external destinations', () => {
@@ -750,16 +856,17 @@ test('Order category tabs follow the saved order and include categories added to
   ])
 })
 
-test('POS payment methods preserve custom codes and handle inactive and missing fees', async () => {
+test('POS payment methods preserve custom codes and read the active PPN rate', async () => {
   const { fetchPaymentMethods } = await import('../src/features/orders/payment-methods.ts')
   const { paymentTotals, savePayment } = await import('../src/features/orders/payment-details.ts')
   const edc = {
     payment_code: 'qris_edc', payment_method: 'EDC QRIS', payment_type: 'edc',
-    fee_code: 'qris_edc', fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', image: '',
-    is_active: true, fee_active: true, fee_found: true,
+    fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', image: '',
+    is_active: true, fee_active: true,
   }
   const signal = new AbortController().signal
   const cashier = { account_id: '2', account_username: 'kasir', event_level: 'kasir' }
+  let ppnActive = true
   useAuthStore.getState().setSession({
     account: cashier,
     token: 'test-token-only', expiresAt: Date.now() + 60_000,
@@ -771,29 +878,31 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
       assert.deepEqual(config.params, { action: 'list_payment' })
       assert.equal(config.signal, signal)
       assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
-      return { config, status: 200, headers: {}, data: { status: 'success', data: [
+      return { config, status: 200, headers: {}, data: { status: 'success', data: { payments: [
         edc,
         { ...edc, payment_code: 'debit_off_us', fee_active: false },
-        { ...edc, payment_code: 'credit_on_us', fee_found: false, fee_active: false },
         { ...edc, payment_code: 'disabled', is_active: false },
-        { ...edc, payment_code: 'cash', payment_type: 'cash', fee_code: null, fee_active: false, fee_found: false },
-        { ...edc, payment_code: 'qris_cabang', payment_type: 'qris', fee_code: null, image: '../../data-assets/qris.png' },
-      ] } }
+        { ...edc, payment_code: 'cash', payment_type: 'cash', fee: 0, fee_type: 'flat', fee_active: false, fee_bearer: 'store' },
+        { ...edc, payment_code: 'qris_cabang', payment_type: 'qris', image: '../../data-assets/qris.png' },
+      ], ppn: { value: 10, is_active: ppnActive } } } }
     }
-    const [card, missingFee, cash, qris] = await fetchPaymentMethods(signal)
+    const { payments: methods, ppnRate } = await fetchPaymentMethods(signal)
+    assert.equal(ppnRate, 10)
+    assert.deepEqual(methods.map(({ code }) => code), ['qris_edc', 'debit_off_us', 'cash', 'qris_cabang'])
+    const [card, inactiveFee, cash, qris] = methods
     assert.deepEqual(card.fee, { amount: 0.7, type: 'percent' })
     assert.equal(card.feeBearer, 'customer')
     assert.equal(card.kind, 'noncash')
-    assert.equal(missingFee.code, 'credit_on_us')
-    assert.equal(missingFee.missingFee, true)
-    assert.equal(missingFee.fee, undefined)
+    assert.equal(inactiveFee.fee, undefined)
     assert.equal(cash.kind, 'cash')
-    assert.equal(cash.missingFee, false)
+    assert.equal(cash.fee, undefined)
     assert.equal(qris.kind, 'qris')
     assert.equal(qris.image, 'https://kasirv2.dhcsupplement.co.id/data-assets/qris.png')
-    const historicalMethods = await fetchPaymentMethods(signal, 'all')
+    ppnActive = false
+    const { payments: historicalMethods, ppnRate: inactivePpn } = await fetchPaymentMethods(signal, 'all')
+    assert.equal(inactivePpn, 0)
     assert.deepEqual(historicalMethods.map(({ code }) => code), [
-      'qris_edc', 'debit_off_us', 'credit_on_us', 'disabled', 'cash', 'qris_cabang',
+      'qris_edc', 'debit_off_us', 'disabled', 'cash', 'qris_cabang',
     ])
     const { defaultSalesFilters, salesFilterChips } = await import('../src/features/sales/sales-filters.ts')
     const options = historicalMethods.map(({ code, title }) => ({ value: code, label: title }))
@@ -811,7 +920,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
         product: { id: 'SKU-1', title: 'Air Mineral', price: 3500, branchId: 'branch-1', discountType: 'Persentase (%)', discount: 10 },
         unitPrice: 3150, quantity: 2,
       }] },
-      subtotal: 6300, methodFeeAmount: 44, discountAmount: 322, discountAmounts: [322], total: 6122, paid: 6122, change: 0,
+      subtotal: 6300, methodFeeAmount: 43, discountAmount: 320, discountAmounts: [320], total: 6123, paid: 6123, change: 0,
       additionalPrices: [{ title: 'Kemasan', value: 100 }], discounts: [{ title: 'Promo', type: 'percent', value: 5 }], method: card,
     }
     assert.equal(await savePayment(receipt, cashier), 'TRX-RECEIPT')
@@ -842,7 +951,8 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     const discounts = [...receipt.discounts, { title: 'Voucher', type: 'fixed', value: 250 }]
     const totals = paymentTotals(receipt.order, additionalPrices, discounts, card)
     assert.equal(totals.total, 6062)
-    assert.deepEqual(totals.discountAmounts, [332, 250])
+    assert.equal(totals.methodFeeAmount, 42)
+    assert.deepEqual(totals.discountAmounts, [330, 250])
     await savePayment({ ...receipt, ...totals, additionalPrices, discounts }, cashier)
     assert.equal(sent.data.get('payment_total_price'), '6062')
     assert.equal(sent.data.get('payment_additional_price[1][title]'), 'Layanan')
@@ -874,9 +984,10 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     assert.equal(capped.total, 0)
     assert.deepEqual(capped.discountAmounts, [315, 5985])
 
-    await savePayment({ ...receipt, method: qris, methodFeeAmount: 0, proof: new File(['proof'], 'qris.png', { type: 'image/png' }) }, cashier)
+    await savePayment({ ...receipt, method: qris, methodFeeAmount: 0, proof: new File([new Uint8Array(99_999)], 'qris.png', { type: 'image/png' }) }, cashier)
     assert.equal(sent.data.get('payment_methods'), 'qris_cabang')
     assert.equal(sent.data.get('payment_upload_file').name, 'qris.png')
+    assert.equal(sent.data.get('payment_upload_file').size, 99_999)
 
     const admin = {
       ...cashier, account_role: 'admin', store: { all_branches: true, branches: [{ id: 'branch-1', name: 'Cabang 1' }] },
@@ -923,7 +1034,7 @@ test('POS payment methods preserve custom codes and handle inactive and missing 
     await assert.rejects(savePayment({ ...receipt, method: { ...cash, code: '' } }, cashier), /Pilih metode pembayaran/)
     await assert.rejects(savePayment({ ...receipt, total: NaN }, cashier), /Total pembayaran tidak valid/)
     await assert.rejects(savePayment({ ...receipt, order: { ...receipt.order, items: [{ ...receipt.order.items[0], quantity: 0 }] } }, cashier), /Data produk/)
-    await assert.rejects(savePayment({ ...receipt, proof: new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'bukti.png') }, cashier, 'pending_trx'), /maksimal 5 MB/)
+    await assert.rejects(savePayment({ ...receipt, proof: new File([new Uint8Array(100_000)], 'bukti.png') }, cashier, 'pending_trx'), /di bawah 100 KB/)
     assert.equal(sent, pendingRequest)
   } finally {
     useAuthStore.getState().clearSession()
@@ -1226,13 +1337,55 @@ test('transaction queries send supported filters, user IDs, exact payment codes 
   useAuthStore.getState().clearSession()
 })
 
+test('transaction pages keep filters and follow the cursor while deduplicating transaction IDs', async () => {
+  const { fetchAllTransactions, fetchTransactions, flattenTransactionPages, isInvalidTransactionCursor, mapTransactionList } = await import('../src/features/sales/sales-api.ts')
+  const signal = new AbortController().signal
+  const filters = { branchId: 'BC-001', status: 'pending' }
+  const cursor = ' token+/= '
+  const params = []
+  const first = { trx_id: 'TRX-2', trx_kasir: 'Kasir', trx_location: 'Toko', trx_date: '26/11/2026 10:00',
+    trx_total: '50000', trx_payment: 'cash', trx_change: '0', trx_total_items: 1, trx_status: 'pending' }
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.signal, signal)
+    params.push(config.params)
+    const data = config.params.cursor ? {
+      paging: { limit: 25, returned: 2, has_more: false, next_cursor: 'ignored' },
+      data_trx: [first, { ...first, trx_id: 'TRX-1' }],
+    } : {
+      summary: { transaction: [{ title: 'transaction', value: 2 }], summary: [], payments: [] },
+      paging: { limit: 25, returned: 1, has_more: true, next_cursor: cursor }, data_trx: [first],
+    }
+    return { config, status: 200, headers: {}, data: { status: 'success', data } }
+  }
+  const firstPage = await fetchTransactions(filters, ' kasir ', signal)
+  assert.equal(firstPage.summary.transactions, 2)
+  assert.equal(firstPage.nextCursor, cursor)
+  const lastPage = await fetchTransactions(filters, ' kasir ', signal, firstPage.nextCursor)
+  assert.equal(lastPage.nextCursor, undefined)
+  assert.deepEqual(flattenTransactionPages([firstPage, lastPage]).map(({ id }) => id), ['TRX-2', 'TRX-1'])
+  assert.deepEqual((await fetchAllTransactions(filters, ' kasir ', signal)).map(({ id }) => id), ['TRX-2', 'TRX-1'])
+  const base = { action: 'list_trx', branch_id: 'BC-001', search: 'kasir', status: 'pending' }
+  assert.deepEqual(params, [base, { ...base, cursor }, base, { ...base, cursor }])
+  assert.equal(mapTransactionList({ summary: [], data_trx: [], paging: { has_more: true, next_cursor: '' } }).nextCursor, undefined)
+  api.defaults.adapter = async (config) => {
+    throw new AxiosError('Bad Request', 'ERR_BAD_REQUEST', config, undefined, {
+      config, status: 400, headers: {}, data: { status: 'error', msg: 'Cursor tidak valid' },
+    })
+  }
+  await assert.rejects(fetchTransactions(filters, ' kasir ', signal, cursor), isInvalidTransactionCursor)
+})
+
 test('transaction mapping uses server aggregates, Jakarta dates, payment names and actual change', async () => {
   const { mapTransactionList } = await import('../src/features/sales/sales-api.ts')
   const mapped = mapTransactionList({
     summary: {
       transaction: [{ title: 'transaction', value: 129 }, { title: 'variants', value: 265 }, { title: 'items', value: 364 }],
       summary: [{ title: 'sellings', value: 20363000 }, { title: 'changes', value: 150000 }],
-      payments: [{ title: 'qris', value: 19358000 }, { title: 'cash', value: 1005000 }],
+      cash: { received: 150000, change: 44000, refund: 0, net: 106000, change_without_nominal: 0 },
+      payments: [
+        { title: 'qris', value: 19358000 }, { title: 'cash', value: 1005000 },
+        { title: 'dibayaran', value: '1' }, { title: 'kembali', value: '0' },
+      ],
     },
     data_trx: [{ trx_id: 'TRXWHSMEY', trx_kasir: 'Muhammad Idris Iswardana', trx_location: 'Jak Japan Matsuri 2026',
       trx_date: '01/11/2026 20:22', trx_total: '165000', trx_payment: 'cash', trx_change: '35000', trx_total_items: 2, trx_status: 'completed' }],
@@ -1240,6 +1393,7 @@ test('transaction mapping uses server aggregates, Jakarta dates, payment names a
   assert.deepEqual(mapped.summary, {
     transactions: 129, productsSold: 364, total: 20363000, change: 150000,
     paymentTotals: { QRIS: 19358000, Tunai: 1005000 },
+    cash: { received: 150000, change: 44000 },
   })
   assert.equal(mapped.sales[0].occurredAt, '2026-11-01T20:22:00+07:00')
   assert.equal(mapped.sales[0].status, 'complete')
@@ -1249,9 +1403,29 @@ test('transaction mapping uses server aggregates, Jakarta dates, payment names a
   assert.equal(mapped.sales[0].totalItems, 2)
   assert.deepEqual(mapped.sales[0].items, [])
   assert.equal(mapped.sales[0].paymentProof, undefined)
+  assert.deepEqual(mapTransactionList({
+    summary: [], data_trx: [], cash: { received: '0', change: 0 },
+  }).summary.cash, { received: 0, change: 0 })
   assert.deepEqual(mapTransactionList([]), {
     sales: [], summary: { transactions: 0, productsSold: 0, total: 0, change: 0, paymentTotals: {} },
   })
+})
+
+test('transaction status breakdown preserves zero counts and totals from the API', async () => {
+  const { mapTransactionList } = await import('../src/features/sales/sales-api.ts')
+  const summary = { transaction: [], summary: [], payments: [] }
+  const status_breakdown = {
+    completed: { count: '4', total: '141000' },
+    pending: { count: 0, total: 0 },
+    cancelled: { count: 0, total: 0 },
+    refund_partial: { count: 0, total: 0 },
+    refund_full: { count: 0, total: 0 },
+  }
+  const expected = { ...status_breakdown, completed: { count: 4, total: 141000 } }
+  assert.deepEqual(mapTransactionList({ status: 'success', data: {
+    summary, data_trx: [], status_breakdown,
+  } }).summary.statusBreakdown, expected)
+  assert.deepEqual(mapTransactionList({ summary: { ...summary, status_breakdown }, data_trx: [] }).summary.statusBreakdown, expected)
 })
 
 test('empty list responses render as no data while real API errors are preserved', async () => {
@@ -1267,7 +1441,7 @@ test('empty list responses render as no data while real API errors are preserved
   const { fetchTransactions } = await import('../src/features/sales/sales-api.ts')
   const signal = new AbortController().signal
   const listRequests = [fetchProducts, fetchOrderProducts, fetchCategories, fetchProductStock,
-    fetchStore, fetchUsers, fetchPaymentMethods, fetchHandoverCandidates, fetchPendingHandovers]
+    fetchStore, fetchUsers, fetchHandoverCandidates, fetchPendingHandovers]
   const emptyTransactions = { sales: [], summary: { transactions: 0, productsSold: 0, total: 0, change: 0, paymentTotals: {} } }
   let payload
   api.defaults.adapter = async (config) => ({ config, status: 200, headers: {}, data: payload })
@@ -1275,6 +1449,7 @@ test('empty list responses render as no data while real API errors are preserved
   for (const empty of [[], { status: 'success', data: [] }, { status: 'error', msg: 'No Data yet', data: [] }]) {
     payload = empty
     for (const fetchList of listRequests) assert.deepEqual(await fetchList(signal), [])
+    assert.deepEqual(await fetchPaymentMethods(signal), { payments: [] })
     assert.deepEqual(await fetchCashSessionExport({}), [])
     assert.deepEqual(await fetchCashSessions({}), { sessions: [], count: 0 })
     assert.deepEqual(await fetchDashboard('best_sales'), [])
@@ -1293,10 +1468,38 @@ test('empty list responses render as no data while real API errors are preserved
 
   payload = { status: 'error', msg: 'Akses ditolak', data: [] }
   for (const fetchList of listRequests) await assert.rejects(fetchList(signal), /Akses ditolak/)
+  await assert.rejects(fetchPaymentMethods(signal), /Akses ditolak/)
   await assert.rejects(fetchTransactions({}, ''), /Akses ditolak/)
   await assert.rejects(fetchCashSessions({}), /Akses ditolak/)
   await assert.rejects(fetchDashboard('trending_product'), /Akses ditolak/)
   await assert.rejects(fetchStoreSettings(), /Akses ditolak/)
+})
+
+test('store settings read fee details from each payment method', async () => {
+  const { fetchStoreSettings, paymentImageUrl } = await import('../src/features/settings/store-settings-query.ts')
+  const signal = new AbortController().signal
+  const data = {
+    store_id: 'EVT-001',
+    shift: [{ code: 'pagi', title: 'Pagi', is_active: true, start_time: '06:00', end_time: '14:00' }],
+    ppn: { value: 10, is_active: true },
+    shift_mode: 'shift',
+    cash_tolerance: 10000,
+    payment: [
+      { code: 'cash', title: 'CASH', type: 'cash', fee: 0, fee_type: 'flat', fee_active: false, fee_bearer: 'store', image: '', is_active: true },
+      { code: 'qris', title: 'QRIS', type: 'qris', fee: 1, fee_type: 'percent', fee_active: true, fee_bearer: 'store', image: '../../data-assets/upload/qris/qris.jpg', is_active: true },
+      { code: 'qris_customer', title: 'QRIS CUSTOMER', type: 'qris', fee: 0.5, fee_type: 'percent', fee_active: true, fee_bearer: 'customer', image: '', is_active: true },
+    ],
+  }
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/admin/setting.php')
+    assert.equal(config.method, 'get')
+    assert.deepEqual(config.params, { action: 'setting' })
+    assert.equal(config.signal, signal)
+    return { config, status: 200, headers: {}, data: { status: 'success', msg: 'Successfully Get Setting', data } }
+  }
+  const settings = await fetchStoreSettings(signal)
+  assert.deepEqual(settings, data)
+  assert.equal(paymentImageUrl(settings.payment[1].image), 'https://kasirv2.dhcsupplement.co.id/data-assets/upload/qris/qris.jpg')
 })
 
 test('all-branch stock, shift history and sales omit the branch ID', async () => {
@@ -1344,10 +1547,15 @@ test('reports use the authenticated download endpoint and send only supported fi
     assert.equal(requests.at(-1).headers.get('Accept'), 'text/html')
     assert.equal(requests.at(-1).responseType, 'text')
     assert.equal(requests.at(-1).signal, signal)
+    const salesDates = { startDate: '2026-11-10', endDate: '2026-11-18' }
+    assert.equal(await fetchSalesHistoryTable(signal, salesDates), html)
+    assert.deepEqual(requests.at(-1).params, { action: 'table_history', ...salesDates })
 
     payload = { status: 'success', data: sales }
     assert.deepEqual(await fetchSalesHistoryExport(), sales)
     assert.deepEqual(requests.at(-1).params, { action: 'export_history' })
+    assert.deepEqual(await fetchSalesHistoryExport(salesDates), sales)
+    assert.deepEqual(requests.at(-1).params, { action: 'export_history', ...salesDates })
 
     payload = { status: 'success', data: sessions }
     assert.deepEqual(await fetchCashSessionExport({ startDate: '2026-11-19', endDate: '2026-11-25' }), sessions)
@@ -1448,7 +1656,7 @@ test('transaction details fetch selected IDs and use historical images, line tot
     trx_subtotal: '31500', trx_payment_fee: '0.7%',
     trx_nominal: '0', trx_change: '0', trx_total_items: 1,
     trx_products: [{ menu_id: 'PE00001', name: 'DHC Vitamin C ', img: '../../data-assets/upload/menu/PE00001/PE00001.png?v=19?v=11',
-      price: '35000', qty: '1', price_total: '31500' }],
+      price: '35000', qty: '1', price_total: '31500', discount_type: 'percent', discount: '10' }],
     trx_upload_file: '../../data-assets/upload/transaction/TRXWHSMEY/bukti_pembayaran_TRXWHSMEY.jpg',
   }
   let sent
@@ -1471,11 +1679,24 @@ test('transaction details fetch selected IDs and use historical images, line tot
   assert.equal(detail.items[0].quantity, 1)
   assert.equal(detail.items[0].unitPrice, 35000)
   assert.equal(detail.items[0].lineTotal, 31500)
+  assert.equal(detail.items[0].discountType, 'percent')
+  assert.equal(detail.items[0].discount, 10)
+  const [itemWithoutTotal] = mapTransactionDetail({ ...response, trx_products: [
+    { ...response.trx_products[0], price_total: null },
+  ] }).items
+  assert.equal(itemWithoutTotal.lineTotal, undefined)
   assert.equal(detail.items[0].image, 'https://kasirv2.dhcsupplement.co.id/data-assets/upload/menu/PE00001/PE00001.png?v=19?v=11')
   assert.equal(detail.paymentProof.url, 'https://kasirv2.dhcsupplement.co.id/data-assets/upload/transaction/TRXWHSMEY/bukti_pembayaran_TRXWHSMEY.jpg')
   assert.equal(detail.paymentProof.type, 'image')
-  assert.equal(mapTransactionDetail({ ...response, trx_payment: 'cash' }).paymentProof, undefined)
-  assert.equal(mapTransactionDetail({ ...response, trx_upload_file: '' }).paymentProof, undefined)
+  const cash = mapTransactionDetail({ ...response, trx_payment: 'cash', trx_nominal: '50000' })
+  assert.equal(cash.paid, 50000)
+  assert.deepEqual(cash.paymentProof, detail.paymentProof)
+  const edc = mapTransactionDetail({ ...response, trx_payment: 'debit_on_us', trx_upload_file: '  ../../data-assets/bukti.pdf  ' })
+  assert.equal(edc.paymentProof.type, 'document')
+  assert.equal(edc.paymentProof.url, 'https://kasirv2.dhcsupplement.co.id/data-assets/bukti.pdf')
+  for (const trx_upload_file of ['', '  ', null, undefined]) {
+    assert.equal(mapTransactionDetail({ ...response, trx_upload_file }).paymentProof, undefined)
+  }
   assert.equal(mapTransactionDetail({ ...response, trx_products: [{ ...response.trx_products[0], menu_id: '', img: '?v=00' }] }).items[0].image, '')
   assert.throws(() => mapTransactionDetail({ status: 'error', msg: 'Transaksi tidak ditemukan' }), /Transaksi tidak ditemukan/)
   assert.throws(() => mapTransactionDetail({ status: 'success' }), /Format detail transaksi/)
@@ -1528,6 +1749,62 @@ test('cash sessions follow server mode and submit opening, handover and closing 
   assert.equal(new URLSearchParams(sent.data).get('closing_cash'), '')
 })
 
+test('percentage fees use the adjusted amount and settled details preserve the recorded fee', async () => {
+  const { paymentTotals, pendingPaymentDetails, recordedPaymentTotals } = await import('../src/features/orders/payment-details.ts')
+  const order = { id: 'TRX-1', items: [{ quantity: 1, unitPrice: 100000 }] }
+  const additionalPrices = [{ title: 'Kemasan', value: 10000 }]
+  const discounts = [{ title: 'Voucher', type: 'fixed', value: 20000 }]
+  const method = { code: 'qris', kind: 'qris', fee: { type: 'percent', amount: 1 }, feeBearer: 'customer' }
+  assert.deepEqual(paymentTotals(order, additionalPrices, discounts, method), {
+    subtotal: 100000, methodFeeAmount: 900, discountAmount: 20000, discountAmounts: [20000], taxAmount: 0, total: 90900,
+  })
+  assert.deepEqual(paymentTotals(order, additionalPrices, discounts, method, 10), {
+    subtotal: 100000, methodFeeAmount: 990, discountAmount: 20000, discountAmounts: [20000], taxAmount: 9000, total: 99990,
+  })
+  assert.equal(paymentTotals(order, additionalPrices, [{ ...discounts[0], value: 200000 }], method).methodFeeAmount, 0)
+  const sale = { status: 'complete', paymentFee: 1, additionalPrices, discounts, total: 90900 }
+  assert.equal(recordedPaymentTotals(sale, 100000).methodFeeAmount, 900)
+  assert.equal(recordedPaymentTotals({ ...sale, total: 91000 }, 100000).methodFeeAmount, 1000)
+  const legacy = recordedPaymentTotals({ ...sale, tax: 11, total: 102010 }, 100000)
+  assert.equal(legacy.methodFeeAmount, 1010)
+  assert.equal(legacy.taxAmount, 11000)
+  const pending = pendingPaymentDetails(order, { ...sale, status: 'pending', tax: 11 }, method, method)
+  assert.equal(pending.totals.taxAmount, 9900)
+  assert.equal(pending.totals.methodFeeAmount, 999)
+  assert.equal(pending.updates.total, 100899)
+  const existing = { ...sale, status: 'pending', tax: 11, total: 102010 }
+  const currentPpn = pendingPaymentDetails(order, existing, method, method, {}, 10)
+  assert.equal(currentPpn.totals.taxAmount, 9000)
+  assert.deepEqual(currentPpn.updates, { ppn: 10, total: 99990 })
+  const inactivePpn = pendingPaymentDetails(order, existing, method, method, {}, 0)
+  assert.equal(inactivePpn.totals.taxAmount, 0)
+  assert.deepEqual(inactivePpn.updates, { ppn: 0, total: 90900 })
+})
+
+test('cash checkout recalculates pending PPN after additional costs and discounts', async () => {
+  const { paymentTotals, pendingPaymentDetails, recordedPaymentTotals } = await import('../src/features/orders/payment-details.ts')
+  const order = { id: 'TRX-1', items: [{ quantity: 1, unitPrice: 35000 }] }
+  const additionalPrices = [{ title: 'Kantong plastik', value: 2000 }]
+  const discounts = [{ title: 'Diskon', type: 'fixed', value: 10000 }]
+  const cash = { code: 'cash', kind: 'cash' }
+  const sale = { status: 'pending', tax: 10, additionalPrices, discounts, total: 30500 }
+  const totals = paymentTotals(order, additionalPrices, discounts, cash, 10)
+
+  assert.equal(totals.taxAmount, 2700)
+  assert.equal(totals.total, 29700)
+  assert.deepEqual(pendingPaymentDetails(order, sale, cash, cash, {}, 10).updates, { total: 29700 })
+  assert.equal(recordedPaymentTotals({ ...sale, status: 'complete' }, 35000).taxAmount, 3500)
+  assert.equal(recordedPaymentTotals({ ...sale, status: 'complete', total: 29700 }, 35000).taxAmount, 2700)
+  assert.equal(recordedPaymentTotals({ ...sale, status: 'complete', tax: undefined, total: 27000 }, 35000).taxAmount, 0)
+
+  const card = { code: 'card', kind: 'edc', fee: { type: 'fixed', amount: 1000 }, feeBearer: 'customer' }
+  const cardTotals = paymentTotals(order, additionalPrices, discounts, card, 10)
+  assert.equal(cardTotals.taxAmount, 2700)
+  assert.equal(cardTotals.total, 30700)
+  const recordedCard = { ...sale, status: 'complete', total: 30700, additionalPrices: [...additionalPrices, { title: 'Biaya pembayaran', value: 1000 }] }
+  assert.equal(recordedPaymentTotals(recordedCard, 35000).taxAmount, 2700)
+})
+
 test('settling a pending transaction posts pay_trx for the existing ID without resending products', async () => {
   const { pendingPaymentDetails, resolvePendingTransaction } = await import('../src/features/orders/payment-details.ts')
   const { fetchPaymentMethods, findRecordedPaymentMethod } = await import('../src/features/orders/payment-methods.ts')
@@ -1538,9 +1815,9 @@ test('settling a pending transaction posts pay_trx for the existing ID without r
       assert.equal(config.url, '/transaction/trx')
       assert.deepEqual(config.params, { action: 'list_payment' })
       return { config, headers: {}, status: 200, data: { status: 'success', data: [
-        { payment_code: 'cash', payment_method: 'Tunai', payment_type: 'cash', is_active: true, fee_active: false, fee_found: false },
+        { payment_code: 'cash', payment_method: 'Tunai', payment_type: 'cash', is_active: true, fee_active: false },
         { payment_code: 'qris_cabang', payment_method: 'QRIS Cabang', payment_type: 'qris', is_active: true,
-          fee_code: 'qris', fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', fee_active: true, fee_found: true },
+          fee: 0.7, fee_type: 'percent', fee_bearer: 'customer', fee_active: true },
       ] } }
     }
     return { config, headers: {}, status: 200, data: {
@@ -1570,27 +1847,32 @@ test('settling a pending transaction posts pay_trx for the existing ID without r
     'discounts[0][title]': 'Promo', 'discounts[0][type]': 'fixed', 'discounts[0][value]': '650',
   })
 
-  const methods = await fetchPaymentMethods()
+  const { payments: methods, ppnRate } = await fetchPaymentMethods()
+  assert.equal(ppnRate, undefined)
   const recorded = findRecordedPaymentMethod(methods, 'TUNAI')
   const qris = methods.find(({ kind }) => kind === 'qris')
   const sale = { subtotal: 15000, total: 15500, paymentFee: 0, additionalPrices: [{ title: 'Kemasan', value: 500 }] }
   const order = { id: 'TRX-1', items: [] }
   assert.deepEqual(pendingPaymentDetails(order, sale, recorded, recorded).updates, {})
   const changed = pendingPaymentDetails(order, sale, qris, recorded)
-  assert.equal(changed.totals.total, 15605)
+  assert.equal(changed.totals.total, 15609)
   await resolvePendingTransaction(order.id, { ...changed.updates, methodCode: qris.code })
   assert.deepEqual(Object.fromEntries(sent.data), {
-    action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'qris_cabang', payment_fee: '0.7', payment_total_price: '15605',
+    action: 'pay_trx', trx_id: 'TRX-1', payment_methods: 'qris_cabang', payment_fee: '0.7', payment_total_price: '15609',
   })
 
   const storeQris = { ...qris, feeBearer: 'store' }
   const savedPending = { ...sale, status: 'pending', total: 15605, paymentFee: 0.7 }
+  const sameMethod = pendingPaymentDetails(order, savedPending, qris, qris)
+  assert.equal(sameMethod.totals.methodFeeAmount, 109)
+  assert.deepEqual(sameMethod.updates, { total: 15609 })
   const absorbed = pendingPaymentDetails(order, savedPending, storeQris, storeQris)
   assert.equal(absorbed.totals.methodFeeAmount, 0)
   assert.equal(absorbed.totals.total, 15500)
   assert.deepEqual(absorbed.updates, { paymentFee: 0, total: 15500 })
   const settled = pendingPaymentDetails(order, { ...savedPending, status: 'complete' }, storeQris, storeQris)
   assert.equal(settled.totals.total, 15605)
+  assert.equal(settled.totals.methodFeeAmount, 105)
   assert.deepEqual(settled.updates, {})
 
   const withFixedFee = { ...sale, additionalPrices: [...sale.additionalPrices, { title: 'Biaya pembayaran', value: 1000 }] }
@@ -1651,7 +1933,7 @@ test('sales can edit payment adjustments and cash without transmitting products'
   })
   await editSalePayment(sale, { method: { code: 'qris_edc', kind: 'noncash', fee: { type: 'percent', amount: 1 }, feeBearer: 'customer' }, recordedMethod: cash })
   assert.deepEqual(Object.fromEntries(requests[1].data), {
-    action: 'edit_trx', trx_id: 'TRX-1', payment_methods: 'qris_edc', payment_total_price: '14650',
+    action: 'edit_trx', trx_id: 'TRX-1', payment_methods: 'qris_edc', payment_total_price: '14645',
     payment_fee: '1', payment_cash_nominal: '0', payment_cash_change: '0',
   })
   await assert.rejects(editSalePayment(sale, { ...changes, paid: 10000 }), /Nominal tunai/)
@@ -1796,7 +2078,7 @@ test('editing pending products recalculates the total and preserves stored payme
   assert.equal(requests[0].params, undefined)
   assert.deepEqual(requests[1].params, { action: 'detail_trx', trx_id: 'TRX-1' })
   assert.deepEqual(Object.fromEntries(requests[0].data), {
-    action: 'edit_trx', trx_id: 'TRX-1', sales: 'U-0012', payment_total_price: '35823',
+    action: 'edit_trx', trx_id: 'TRX-1', sales: 'U-0012', payment_total_price: '35942',
     payment_methods: 'qris_edc', payment_fee: '0.7', payment_cash_nominal: '0', payment_cash_change: '0',
     'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '1200',
     'payment_additional_price[1][title]': 'Layanan', 'payment_additional_price[1][value]': '700',
@@ -1811,7 +2093,7 @@ test('editing pending products recalculates the total and preserves stored payme
   })
   const reduced = changePendingQuantity(original, original, 'P1', 1, existing)
   await editPendingOrder(reduced, transaction)
-  assert.equal(requests[2].data.get('payment_total_price'), '10355')
+  assert.equal(requests[2].data.get('payment_total_price'), '10457')
   await assert.rejects(editPendingOrder({ ...order, items: [] }, transaction), /Tambahkan produk/)
   assert.equal(requests.length, 4)
 

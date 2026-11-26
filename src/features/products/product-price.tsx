@@ -10,18 +10,20 @@ export function ProductPrice({
   unitPrice,
   inline = false,
   quantity = 1,
+  showSingleQuantity = false,
 }: {
-  product: Product;
+  product: Pick<Product, "price" | "discount" | "discountType">;
   detail?: boolean;
   unitPrice?: number;
   inline?: boolean;
   quantity?: number;
+  showSingleQuantity?: boolean;
 }) {
   const pricing = getProductPricing(product);
   const finalPrice = unitPrice ?? pricing.finalPrice;
   const { percent } = pricing;
   const hasDiscount = pricing.hasDiscount && finalPrice < product.price;
-  const quantityLabel = quantity > 1 ? `${quantity} × ` : "";
+  const quantityLabel = showSingleQuantity || quantity > 1 ? `${quantity} × ` : "";
   return (
     <span
       className={cn(

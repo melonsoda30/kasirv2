@@ -10,6 +10,7 @@ const reportResponse = z.object({
 const reportError = z.object({ msg: z.string().trim().min(1) });
 
 export type ReportRow = z.output<typeof reportRow>;
+export type ReportDateFilters = { startDate?: string; endDate?: string };
 
 async function fetchReportRows(params: Record<string, string>, fallback: string) {
   const response = await request<unknown>({ url: endpoint, method: "GET", params });
@@ -20,23 +21,26 @@ async function fetchReportRows(params: Record<string, string>, fallback: string)
   return parsed.data.data;
 }
 
-export function fetchSalesHistoryExport() {
-  return fetchReportRows({ action: "export_history" }, "Gagal mengunduh laporan penjualan.");
-}
-
-export function fetchCashSessionExport({ startDate, endDate }: { startDate?: string; endDate?: string } = {}) {
-  return fetchReportRows({
-    action: "export_session",
+function reportDateParams({ startDate, endDate }: ReportDateFilters) {
+  return {
     ...(startDate && { startDate }),
     ...(endDate && { endDate }),
-  }, "Gagal mengunduh laporan shift.");
+  };
 }
 
-export async function fetchSalesHistoryTable(signal?: AbortSignal) {
+export function fetchSalesHistoryExport(filters: ReportDateFilters = {}) {
+  return fetchReportRows({ action: "export_history", ...reportDateParams(filters) }, "Gagal mengunduh laporan penjualan.");
+}
+
+export function fetchCashSessionExport(filters: ReportDateFilters = {}) {
+  return fetchReportRows({ action: "export_session", ...reportDateParams(filters) }, "Gagal mengunduh laporan shift.");
+}
+
+export async function fetchSalesHistoryTable(signal?: AbortSignal, filters: ReportDateFilters = {}) {
   const html = await request<unknown>({
     url: endpoint,
     method: "GET",
-    params: { action: "table_history" },
+    params: { action: "table_history", ...reportDateParams(filters) },
     headers: { Accept: "text/html" },
     responseType: "text",
     signal,

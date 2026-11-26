@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Tabs } from "@base-ui/react";
 import { cn } from "cn";
 import { CollapsiblePageHeader } from "@/components/collapsible-page-header";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,34 +25,63 @@ import { useUsers, userDisplayName } from "@/features/users/users-api";
 import { SalesFilterDrawer } from "./sales-filter-drawer";
 import { SalesReportDrawer } from "./sales-report-drawer";
 import { defaultSalesFilters, salesFilterChips } from "./sales-filters";
-import { fetchTransactions, transactionListParams } from "./sales-api";
+import { fetchTransactions, flattenTransactionPages, isInvalidTransactionCursor, transactionListParams } from "./sales-api";
 import { SalesSummaryCards } from "./sales-summary-cards";
 import { SalesTransactionList } from "./sales-transaction-list";
 
 function SalesSummarySkeleton() {
   return (
     <div aria-hidden="true" className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <div className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5 lg:mb-9">
+      <div className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5">
         <div className="flex min-h-9 items-center justify-between gap-2">
           <Skeleton className="h-4 w-24 max-w-[40%]" />
           <Skeleton className="h-4 w-36 max-w-[55%]" />
         </div>
         <Skeleton className="h-8 w-2/3" />
       </div>
-      <div className="flex min-w-0 flex-col">
-        <div className="grid flex-1 grid-cols-2 gap-3">
-          {[0, 1].map((index) => (
-            <div key={index} className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5">
-              <Skeleton className="h-5 w-3/4" />
-              <Skeleton className="h-8 w-1/2" />
-            </div>
-          ))}
-        </div>
-        <div className="flex h-9 items-center justify-center gap-3">
-          <Skeleton className="h-1 w-6 rounded-full" />
-          <Skeleton className="h-1 w-6 rounded-full" />
-        </div>
+      <div className="grid grid-cols-2 gap-3">
+        {[0, 1].map((index) => (
+          <div key={index} className="bento-surface flex flex-col justify-between gap-3 p-4 sm:p-5">
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-8 w-1/2" />
+          </div>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function TransactionPagination({ fetching, loading, failed, loadMore, restart }: {
+  fetching: boolean;
+  loading: boolean;
+  failed: boolean;
+  loadMore: () => void;
+  restart?: () => void;
+}) {
+  const footer = useRef<HTMLDivElement>(null);
+  let buttonLabel = "Muat transaksi berikutnya";
+  if (failed) buttonLabel = "Coba lagi";
+  if (restart) buttonLabel = "Muat dari awal";
+
+  useEffect(() => {
+    if (!footer.current || fetching || failed || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore();
+    }, { rootMargin: "0px 0px 240px" });
+    observer.observe(footer.current);
+    return () => observer.disconnect();
+  }, [fetching, failed, loadMore]);
+
+  return (
+    <div ref={footer} className="space-y-2 py-4 text-center">
+      {failed && (
+        <p role="alert" className="text-sm text-muted-foreground">
+          {restart ? "Cursor tidak valid. Muat daftar transaksi dari awal." : "Gagal memuat transaksi berikutnya."}
+        </p>
+      )}
+      <Button type="button" variant="outline" size="sm" disabled={fetching} loading={loading} onClick={restart ?? loadMore}>
+        {buttonLabel}
+      </Button>
     </div>
   );
 }
@@ -64,6 +93,7 @@ export function SalesPage({
   userScope?: { id: string; branchId: string };
   userCard?: ReactNode;
 } = {}) {
+  const queryClient = useQueryClient();
   const account = useAuthStore((state) => state.session?.account);
   const isAdmin = isAdminAccount(account);
   const cashierMode = useAuthStore((state) => usesCashierMode(state.session));
@@ -74,7 +104,7 @@ export function SalesPage({
   const hideStore = !!adminBranchId || !!userScope || !isAdmin || isCashierTransactions;
   const users = useUsers(isAdmin && !userScope);
   const paymentMethods = usePaymentMethods(!!account, undefined, "all");
-  const paymentOptions = (paymentMethods.data ?? []).map(({ code, title }) => ({ value: code, label: title }));
+  const paymentOptions = (paymentMethods.data?.payments ?? []).map(({ code, title }) => ({ value: code, label: title }));
   const title = isCashierTransactions ? "Transaksi" : "Penjualan";
   const searchLabel = `Cari ${title.toLowerCase()}`;
   const [search, setSearch] = useState("");
@@ -93,25 +123,38 @@ export function SalesPage({
   const accountBranch = branchId ?? (isAdmin ? "all" : "");
   const visibleBranch = adminBranchId ?? (isAdmin && !isCashierTransactions ? adminBranch : accountBranch);
   const transactionFilters = {
-    branchId: cashierBranchId ?? adminBranchId,
+    branchId: visibleBranch,
     cashier: userScope?.id ?? filters.cashier,
     dateRange: filters.dateRange,
     paymentMethod: filters.paymentMethod,
   };
-  const transactions = useQuery({
-    queryKey: [
-      "transactions",
-      account?.account_username,
-      transactionListParams(transactionFilters, debouncedSearch),
-    ],
-    queryFn: ({ signal }) =>
-      fetchTransactions(transactionFilters, debouncedSearch, signal),
+  const transactionQueryKey = [
+    "transactions",
+    account?.account_username,
+    "infinite",
+    transactionListParams(transactionFilters, debouncedSearch),
+  ] as const;
+  const transactions = useInfiniteQuery({
+    queryKey: transactionQueryKey,
+    queryFn: ({ signal, pageParam }) =>
+      fetchTransactions(transactionFilters, debouncedSearch, signal, pageParam),
+    initialPageParam: "",
+    getNextPageParam: ({ nextCursor }, _, __, pageParams) =>
+      nextCursor && !pageParams.includes(nextCursor) ? nextCursor : undefined,
+    gcTime: 0,
+    retry: (failureCount, error) => failureCount < 1 && !isInvalidTransactionCursor(error),
     enabled: !!account && (isAdmin || !!branchId),
+    meta: { toast: false },
   });
+  const { fetchNextPage } = transactions;
+  const loadMore = useCallback(() => {
+    void fetchNextPage({ cancelRefetch: false });
+  }, [fetchNextPage]);
   const cachedProducts = useProductStore((state) => state.products);
   const catalog = useProductCatalog(adminBranchId, !!adminBranchId);
   const products = adminBranchId ? catalog.data ?? [] : cachedProducts;
-  const sales = transactions.data?.sales ?? [];
+  const pages = transactions.data?.pages;
+  const sales = useMemo(() => flattenTransactionPages(pages ?? []), [pages]);
   const requestedBranch = transactionFilters.branchId;
   const allowUnknownBranch =
     (!!requestedBranch && requestedBranch === visibleBranch) ||
@@ -141,9 +184,21 @@ export function SalesPage({
   const hasChips = chips.length > 0;
   const hasQuery = search.trim() !== "" || hasChips;
   const missingBranch = !!account && !isAdmin && !branchId;
-  const summary = !missingBranch && transactions.isSuccess && sales.length === visibleSales.length
-    ? transactions.data.summary
+  const summary = !missingBranch && sales.length === visibleSales.length
+    ? pages?.[0]?.summary
     : undefined;
+  const showTransactions = !missingBranch && !!transactions.data;
+  const emptyTransactions = !visibleSales.length && !transactions.hasNextPage;
+  const invalidCursor = transactions.isFetchNextPageError && isInvalidTransactionCursor(transactions.error);
+  const pagination = transactions.hasNextPage && (
+    <TransactionPagination
+      fetching={transactions.isFetching}
+      loading={transactions.isFetchingNextPage}
+      failed={transactions.isFetchNextPageError}
+      loadMore={loadMore}
+      restart={invalidCursor ? () => void queryClient.resetQueries({ queryKey: transactionQueryKey, exact: true }) : undefined}
+    />
+  );
   const toolbar = (
     <>
       <div className="page-gutter flex h-12 gap-2">
@@ -207,7 +262,7 @@ export function SalesPage({
           <div className="page-gutter flex h-12 items-center gap-2">
             <h1 className="min-w-0 flex-1 text-lg font-semibold">{title}</h1>
             {adminBranchId && <div className="min-w-0 max-w-[45%]"><AdminBranchSwitcher /></div>}
-            {isCashierTransactions && <CashSessionControl presentation="popover" />}
+            {isCashierTransactions && !isAdmin && <CashSessionControl presentation="popover" />}
           </div>
           {toolbar}
         </header>
@@ -268,7 +323,7 @@ export function SalesPage({
               )}
             </SkeletonGroup>
           )}
-          {!missingBranch && transactions.isError && (
+          {!missingBranch && transactions.isLoadingError && (
             <div role="alert" className="space-y-3 py-16 text-center">
               <p className="text-sm">
                 Gagal memuat penjualan. Silakan coba lagi.
@@ -283,14 +338,15 @@ export function SalesPage({
               </Button>
             </div>
           )}
-          {!missingBranch && transactions.isSuccess && userScope && (
+          {showTransactions && userScope && (
             <>
               <Tabs.Panel value="summary" className="flow-panel">
                 <SalesSummaryCards sales={visibleSales} summary={summary} />
               </Tabs.Panel>
               <Tabs.Panel value="transactions" className="flow-panel">
-                <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} />
-                {!visibleSales.length && (
+                <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} paymentMethods={paymentMethods.data?.payments} />
+                {pagination}
+                {emptyTransactions && (
                   <p className="py-12 text-center text-sm text-muted-foreground">
                     Tidak ada transaksi untuk pengguna dan filter ini.
                   </p>
@@ -298,11 +354,12 @@ export function SalesPage({
               </Tabs.Panel>
             </>
           )}
-          {!missingBranch && transactions.isSuccess && !userScope && (
+          {showTransactions && !userScope && (
             <>
               <SalesSummaryCards sales={visibleSales} summary={summary} />
-              <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} headerAction={<SalesReportDrawer />} />
-              {visibleSales.length === 0 && (
+              <SalesTransactionList key={adminBranchId} sales={visibleSales} catalogProducts={products} paymentMethods={paymentMethods.data?.payments} headerAction={<SalesReportDrawer />} />
+              {pagination}
+              {emptyTransactions && (
                 <div className="py-16 text-center">
                   <h2 className="text-sm font-medium">
                     {hasQuery

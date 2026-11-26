@@ -38,25 +38,25 @@ export const Route = createFileRoute("/settings_/pembayaran")({
 });
 
 type PaymentMethod = StoreSettings["payment"][number];
-type PaymentFee = StoreSettings["fee"][number];
 
-function formatFee(fee: PaymentFee) {
-  return fee.fee_type === "percent"
-    ? `${fee.fee.toLocaleString("id-ID")}%`
-    : formatCurrency(fee.fee);
+function formatFee(method: PaymentMethod) {
+  return method.fee_type === "percent"
+    ? `${method.fee.toLocaleString("id-ID")}%`
+    : formatCurrency(method.fee);
 }
 
 function PaymentSettingsPage() {
   return (
     <StoreSettingsPage
       title="Pembayaran & Biaya"
+      compactHeader
       allowEmptySettings
       headerAction={({ payment }, update) => (
         <AddPaymentMethod payment={payment} update={update} />
       )}
     >
-      {({ payment, fee }, update) => (
-        <PaymentMethodList payment={payment} fees={fee} update={update} />
+      {({ payment }, update) => (
+        <PaymentMethodList payment={payment} update={update} />
       )}
     </StoreSettingsPage>
   );
@@ -64,11 +64,9 @@ function PaymentSettingsPage() {
 
 function PaymentMethodList({
   payment,
-  fees,
   update,
 }: {
   payment: PaymentMethod[];
-  fees: PaymentFee[];
   update: SaveStoreSettings;
 }) {
   const [deleting, setDeleting] = useState<PaymentMethod | null>(null);
@@ -76,7 +74,6 @@ function PaymentMethodList({
   const [error, setError] = useState("");
   const deleteTrigger = useRef<HTMLButtonElement | null>(null);
   const section = useRef<HTMLElement>(null);
-  const feesByCode = new Map(fees.map((item) => [item.code, item]));
 
   async function remove() {
     if (!deleting || pending) return;
@@ -84,20 +81,10 @@ function PaymentMethodList({
     setError("");
     try {
       await update((current) => {
-        const method = current.payment.find(
-          ({ code }) => code === deleting.code,
-        );
-        if (!method) return {};
         const payment = current.payment.filter(
           ({ code }) => code !== deleting.code,
         );
-        const feeCode = method.fee_code;
-        if (!feeCode || payment.some(({ fee_code }) => fee_code === feeCode))
-          return { payment };
-        const fee = current.fee.filter(({ code }) => code !== feeCode);
-        return fee.length === current.fee.length
-          ? { payment }
-          : { payment, fee };
+        return payment.length === current.payment.length ? {} : { payment };
       });
       setDeleting(null);
       toast.success("Metode pembayaran dihapus.");
@@ -131,9 +118,6 @@ function PaymentMethodList({
         <PaymentMethodCard
           key={method.code}
           method={method}
-          linkedFee={
-            method.fee_code ? feesByCode.get(method.fee_code) : undefined
-          }
           update={update}
           onDelete={(button) => {
             deleteTrigger.current = button;
@@ -199,12 +183,10 @@ function PaymentMethodList({
 
 function PaymentMethodCard({
   method,
-  linkedFee,
   update,
   onDelete,
 }: {
   method: PaymentMethod;
-  linkedFee?: PaymentFee;
   update: SaveStoreSettings;
   onDelete: (button: HTMLButtonElement) => void;
 }) {
@@ -214,13 +196,9 @@ function PaymentMethodCard({
     [method.code, method.title, method.type].some((value) =>
       /qris/i.test(value),
     );
-  let feeSummary = method.fee_code
-    ? "Biaya tertaut tidak ditemukan"
-    : undefined;
-  if (linkedFee) {
-    const status = linkedFee.is_active === false ? ", nonaktif" : "";
-    feeSummary = `Biaya ${formatFee(linkedFee)}${status}`;
-  }
+  const showFeeFields = !isCash || method.fee_active || method.fee > 0;
+  const feeStatus = method.fee_active ? "" : ", nonaktif";
+  const feeSummary = showFeeFields ? `Biaya ${formatFee(method)}${feeStatus}` : undefined;
 
   const [image, setImage] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -271,42 +249,30 @@ function PaymentMethodCard({
           throw new Error("Nama metode pembayaran wajib diisi.");
         const upload =
           values && file ? { file, paymentCode: method.code } : undefined;
-        const feeInput = values?.get("fee");
-        const feeBearer = values?.get("fee_bearer");
-        if (values && !isCash && !isPaymentFeeBearer(feeBearer)) {
-          throw new Error("Pilih penanggung biaya.");
+        const feeChanges: Partial<Pick<PaymentMethod, "fee" | "fee_active" | "fee_bearer">> = {};
+        if (values && showFeeFields) {
+          const feeInput = values.get("fee");
+          const amount = Number(feeInput);
+          if (typeof feeInput !== "string" || !feeInput.trim() || !Number.isFinite(amount) || amount < 0) {
+            throw new Error("Masukkan nilai biaya yang valid.");
+          }
+          const feeBearer = values.get("fee_bearer");
+          if (!isCash && !isPaymentFeeBearer(feeBearer)) {
+            throw new Error("Pilih penanggung biaya.");
+          }
+          const feeActive = values.get("fee_status") === "true";
+          if (amount !== method.fee) feeChanges.fee = amount;
+          if (feeActive !== method.fee_active) feeChanges.fee_active = feeActive;
+          if (isPaymentFeeBearer(feeBearer) && feeBearer !== method.fee_bearer) {
+            feeChanges.fee_bearer = feeBearer;
+          }
         }
-        const amount =
-          typeof feeInput === "string" ? Number(feeInput) : undefined;
-        const feeActive = values?.get("fee_status") === "true";
-        if (
-          amount !== undefined &&
-          (!Number.isFinite(amount) || amount < 0 || feeInput === "")
-        ) {
-          throw new Error("Masukkan nilai biaya yang valid.");
-        }
-        const feeChanged =
-          amount !== undefined &&
-          (amount !== Number(linkedFee?.fee) ||
-            feeActive !== (linkedFee?.is_active ?? true));
         await update((current) => {
           const currentMethod = current.payment.find(
             ({ code }) => code === method.code,
           );
           if (!currentMethod)
             throw new Error("Metode pembayaran sudah tidak tersedia.");
-
-          const currentFee = current.fee.find(
-            ({ code }) => code === currentMethod.fee_code,
-          );
-          if (
-            feeChanged &&
-            (!currentFee || currentFee.code !== linkedFee?.code)
-          ) {
-            throw new Error(
-              "Biaya tertaut berubah. Buka ulang pengaturan metode pembayaran.",
-            );
-          }
 
           return {
             payment: current.payment.map((entry) =>
@@ -315,18 +281,10 @@ function PaymentMethodCard({
                     ...entry,
                     title: title ?? entry.title,
                     is_active: active,
-                    ...(!isCash && isPaymentFeeBearer(feeBearer) && { fee_bearer: feeBearer }),
+                    ...feeChanges,
                   }
                 : entry,
             ),
-            ...(feeChanged &&
-              amount !== undefined && {
-                fee: current.fee.map((entry) =>
-                  entry.code === currentFee?.code
-                    ? { ...entry, is_active: feeActive, fee: amount }
-                    : entry,
-                ),
-              }),
           };
         }, upload);
         if (upload) setImageVersion(Date.now());
@@ -337,19 +295,19 @@ function PaymentMethodCard({
           Nama metode
           <Input name="title" defaultValue={method.title} required />
         </label>
-        {linkedFee && (
+        {showFeeFields && (
           <>
             <FeeStatusCombobox
-              initialValue={String(linkedFee.is_active ?? true)}
+              initialValue={String(method.fee_active)}
             />
             <label className="grid gap-2 text-sm">
-              {linkedFee.fee_type === "percent" ? "Biaya (%)" : "Nominal biaya"}
+              {method.fee_type === "percent" ? "Biaya (%)" : "Nominal biaya"}
               <Input
                 name="fee"
                 type="number"
                 min={0}
                 step="any"
-                defaultValue={linkedFee.fee}
+                defaultValue={method.fee}
                 required
               />
             </label>

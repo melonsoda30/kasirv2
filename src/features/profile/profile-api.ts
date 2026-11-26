@@ -40,14 +40,14 @@ export async function verifyCurrentPassword(password: string) {
 }
 
 export async function changePassword(password: string) {
-  const session = getAuthSession();
-  if (!session) throw new Error("Sesi berakhir. Silakan login kembali.");
+  if (!getAuthSession()) throw new Error("Sesi berakhir. Silakan login kembali.");
+  const { sessionVersion } = useAuthStore.getState();
   const data = new FormData();
   data.set("pass", password);
   const response = await postProfile<SessionTokenResponse>("new_pass", data, "Gagal mengganti password.");
 
-  const { replaceSessionTokens, clearSession } = useAuthStore.getState();
-  if (useAuthStore.getState().session?.token !== session.token) return;
+  const { session, sessionVersion: currentVersion, replaceSessionTokens, clearSession } = useAuthStore.getState();
+  if (!session || currentVersion !== sessionVersion) return;
   try {
     if (!response.data) throw new Error();
     const tokens = readSessionTokens(response.data);

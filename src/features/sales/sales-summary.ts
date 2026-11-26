@@ -2,6 +2,10 @@ import type { SalesFilters } from './sales-filters'
 
 export type SaleStatus = 'complete' | 'pending' | 'delete' | 'refund_partial' | 'refund_full' | 'unknown'
 
+export const salesBreakdownStatuses = ['completed', 'pending', 'cancelled', 'refund_partial', 'refund_full'] as const
+type SalesBreakdownStatus = typeof salesBreakdownStatuses[number]
+export type SalesStatusBreakdown = Partial<Record<SalesBreakdownStatus, { count: number; total: number }>>
+
 export interface SaleItem {
   productId: string
   title: string
@@ -53,6 +57,8 @@ export interface SalesSummary {
   total: number
   change: number
   paymentTotals: Record<string, number>
+  cash?: { received?: number; change?: number }
+  statusBreakdown?: SalesStatusBreakdown
   salesPromotions?: { name: string; total: number }[]
 }
 
