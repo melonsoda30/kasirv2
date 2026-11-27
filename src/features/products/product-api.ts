@@ -1,14 +1,16 @@
 import { API_BASE_URL, isEmptyListResponse, request } from "../../lib/api";
 import { getBranchFilterId } from "../auth/auth-store";
 import { getProductDiscountError } from "./product-pricing";
+import { defaultProductSort, type ProductSort } from "./product-sort";
 import type { Product } from "./sample-products";
 
-interface ProductSalesRecord {
+interface ProductOrderingRecord {
   sold_qty?: string | number | null;
   is_best_seller?: boolean;
+  sort_order?: string | number | null;
 }
 
-interface ProductRecord extends ProductSalesRecord {
+interface ProductRecord extends ProductOrderingRecord {
   status: string;
   product_sku: string;
   store_id: string;
@@ -27,7 +29,7 @@ interface ProductRecord extends ProductSalesRecord {
   discount: string | number;
 }
 
-interface OrderProductRecord extends ProductSalesRecord {
+interface OrderProductRecord extends ProductOrderingRecord {
   status: string;
   id: string;
   location: string;
@@ -66,6 +68,7 @@ export function mapProductRecord(
 ): Product {
   const status = record.status.trim().toLowerCase();
   const soldQuantity = Number(record.sold_qty ?? NaN);
+  const sortOrder = Number(record.sort_order ?? 0);
   const imagePath = record.product_img?.trim() ?? "";
   const branchName = record.branch_name?.trim();
   const stockQuantity =
@@ -122,6 +125,7 @@ export function mapProductRecord(
     stock: number(stockQuantity ?? 0),
     ...(Number.isSafeInteger(soldQuantity) && soldQuantity >= 0 && { soldQuantity }),
     ...(typeof record.is_best_seller === "boolean" && { isBestSeller: record.is_best_seller }),
+    ...(Number.isSafeInteger(sortOrder) && sortOrder > 0 && { sortOrder }),
   };
 }
 
@@ -145,6 +149,7 @@ function mapOrderProductRecord(record: OrderProductRecord): Product {
       use_stock: record.use_stock,
       sold_qty: record.sold_qty,
       is_best_seller: record.is_best_seller,
+      sort_order: record.sort_order,
     },
     orderProductEndpoint,
   );
@@ -180,24 +185,39 @@ async function fetchProductList<TRecord>(
   return data.map((record) => mapRecord(record));
 }
 
-export async function fetchProducts(signal?: AbortSignal, branchId = PRODUCT_EVENT_ID) {
+export async function fetchProducts(signal?: AbortSignal, branchId = PRODUCT_EVENT_ID, sort: ProductSort = defaultProductSort) {
   const filterId = getBranchFilterId(branchId);
   const products = await fetchProductList(
     adminProductEndpoint,
-    { ...menuListParams, ...(filterId && { branch_id: filterId }) },
+    { ...menuListParams, sort, ...(filterId && { branch_id: filterId }) },
     mapProductRecord,
     signal,
   );
   return filterId ? products.filter((product) => product.branchId === filterId) : products;
 }
 
-export function fetchOrderProducts(signal?: AbortSignal) {
-  return fetchProductList(
+export async function fetchOrderProducts(signal?: AbortSignal, sort: ProductSort = defaultProductSort, branchId?: string) {
+  const filterId = getBranchFilterId(branchId);
+  const products = await fetchProductList(
     orderProductEndpoint,
-    { action: "list_product", sort: "best_seller" },
+    { action: "list_product", sort, ...(filterId && { branch_id: filterId }) },
     mapOrderProductRecord,
     signal,
   );
+  return filterId ? products.filter((product) => product.branchId === filterId) : products;
+}
+
+export async function saveProductOrder(product: { id: string; sort_order: number }[]) {
+  const data = new URLSearchParams({ product: JSON.stringify(product) });
+  const response = await request<{ status: string; msg?: string } | null>({
+    url: "/setting.php",
+    method: "POST",
+    params: { action: "set_product_sort_bulk" },
+    data,
+  });
+  if (response?.status !== "success") {
+    throw new Error(response?.msg || "Gagal menyimpan urutan produk.");
+  }
 }
 
 export async function updateProductStatus(

@@ -37,6 +37,7 @@ import {
 import { ProductImage } from "@/features/products/product-card";
 import { ProductPrice } from "@/features/products/product-price";
 import { ProductSortDrawer } from "@/features/products/product-sort-drawer";
+import { defaultProductSort, productSortOptions, type ProductSort } from "@/features/products/product-sort";
 import { getProductPricing } from "@/features/products/product-pricing";
 import { availableProductStock } from "@/features/products/product-stock";
 import type { Product } from "@/features/products/sample-products";
@@ -61,10 +62,7 @@ import {
 } from "@/features/cash-session/cash-session-query";
 import {
   isLowStock,
-  orderProductSortOptions,
-  sortOrderProducts,
   useOrderProducts,
-  type OrderProductSort,
 } from "./order-products";
 import { LowStockReminder } from "./low-stock-reminder";
 import {
@@ -80,7 +78,6 @@ import {
 } from "./pending-order-edit";
 import { OrderCategoryReorderDrawer } from "./order-category-reorder-drawer";
 import { OrderProductReorderDrawer } from "./order-product-reorder-drawer";
-import { useOrderListPreference } from "./order-list-preference";
 import {
   getOrderCategories,
   useOrderCategoryOrder,
@@ -355,30 +352,20 @@ export function OrderPage({
     account?.store?.id ?? account?.event_id,
     branchId ?? account?.store?.branch_id,
   ]);
-  const catalogUnavailable = catalog.isError && !catalog.data;
-  const showProducts =
-    !catalog.isPending && !catalogUnavailable && (!editTrxId || !!serverOrder);
-  const products = (catalog.data?.products ?? []).filter(
-    (product) =>
-      !editTrxId ||
-      (!!transactionBranch &&
-        transactionBranch !== "all" &&
-        product.branchId === transactionBranch),
-  );
+  const canLoadAdminCatalog = isAdminAccount(account) && !!branchId;
+  function matchesOrderBranch(product: Product) {
+    return !editTrxId || (
+      !!transactionBranch &&
+      transactionBranch !== "all" &&
+      product.branchId === transactionBranch
+    );
+  }
+  const products = (catalog.data?.products ?? []).filter(matchesOrderBranch);
   const canManageCategories = !cashierMode && isAdminAccount(account);
   const storeCategories = useProductCategories(canManageCategories);
   const categoryOrder = useOrderCategoryOrder(
     canManageCategories ? undefined : account,
   );
-  const productOrderKey =
-    cashierMode && account
-      ? `kasirv2.order-product-order:${JSON.stringify([
-          account.account_id ?? account.account_username,
-          account.store?.id ?? account.event_id,
-          branchId ?? account.store?.branch_id,
-        ])}`
-      : undefined;
-  const productOrder = useOrderListPreference(productOrderKey);
   const { owner, orders, activeId, initialize } = useOrderStore();
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
@@ -387,7 +374,18 @@ export function OrderPage({
   const openShiftAfterSummary = useRef(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | null>(null);
-  const [sort, setSort] = useState<OrderProductSort>();
+  const [selectedSort, setSelectedSort] = useState<{ scope: string; value: ProductSort }>();
+  const sortScope = JSON.stringify([reminderScope, transactionBranch]);
+  const sort = selectedSort?.scope === sortScope ? selectedSort.value : defaultProductSort;
+  const sortedCatalog = useOrderProducts(sort, sort !== defaultProductSort);
+  const displayCatalog = sort === defaultProductSort ? catalog : sortedCatalog;
+  const displayUnavailable = displayCatalog.isError && !displayCatalog.data;
+  const showProducts =
+    !displayCatalog.isPending && !displayUnavailable && (!editTrxId || !!serverOrder);
+
+  function setSort(value: ProductSort) {
+    setSelectedSort({ scope: sortScope, value });
+  }
   useEffect(() => {
     if (draftOwner) initialize(draftOwner);
   }, [draftOwner, initialize]);
@@ -402,21 +400,11 @@ export function OrderPage({
     ? category
     : null;
   const keyword = search.trim().toLocaleLowerCase("id-ID");
-  const matchingProducts = products.filter(
+  const visible = (displayCatalog.data?.products ?? []).filter(
     (product) =>
+      matchesOrderBranch(product) &&
       (selectedCategory === null || product.category === selectedCategory) &&
       product.title.toLocaleLowerCase("id-ID").includes(keyword),
-  );
-  const sortOptions = cashierMode
-    ? orderProductSortOptions
-    : orderProductSortOptions.filter(({ value }) => value !== "custom");
-  let activeSort = sort ?? "best_seller";
-  if (!sort && cashierMode && productOrder.order.length) activeSort = "custom";
-  if (!cashierMode && activeSort === "custom") activeSort = "best_seller";
-  const visible = sortOrderProducts(
-    matchingProducts,
-    activeSort,
-    productOrder.order,
   );
   const active = editTrxId
     ? pendingOrder
@@ -541,9 +529,9 @@ export function OrderPage({
             className="flex-1"
           />
           <ProductSortDrawer
-            options={sortOptions}
-            sort={activeSort}
-            defaultSort="best_seller"
+            options={productSortOptions}
+            sort={sort}
+            defaultSort={defaultProductSort}
             onSave={setSort}
             triggerClassName="size-12"
           />
@@ -580,13 +568,10 @@ export function OrderPage({
           </div>
           {cashierMode && catalog.data && (
             <OrderProductReorderDrawer
-              key={productOrderKey}
-              products={catalog.data.products}
-              order={productOrder.order}
-              onSave={(order) => {
-                productOrder.save(order);
-                setSort("custom");
-              }}
+              key={sortScope}
+              branchId={branchId}
+              orderCatalog={canLoadAdminCatalog ? undefined : catalog}
+              onSave={() => setSort(defaultProductSort)}
             />
           )}
 
@@ -633,10 +618,10 @@ export function OrderPage({
               : "Pesanan sudah tidak menunggu pembayaran."}
           </p>
         )}
-        {catalog.isPending && (!editTrxId || serverOrder) && (
+        {displayCatalog.isPending && (!editTrxId || serverOrder) && (
           <CatalogSkeleton />
         )}
-        {catalogUnavailable && (
+        {displayUnavailable && (
           <div className="space-y-3 py-12 text-center">
             <p role="alert" className="text-sm text-destructive">
               Gagal memuat produk.
@@ -644,8 +629,8 @@ export function OrderPage({
             <Button
               type="button"
               variant="outline"
-              loading={catalog.isFetching}
-              onClick={() => void catalog.refetch()}
+              loading={displayCatalog.isFetching}
+              onClick={() => void displayCatalog.refetch()}
             >
               Coba lagi
             </Button>

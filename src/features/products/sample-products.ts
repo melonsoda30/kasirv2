@@ -30,6 +30,7 @@ export interface Product {
   stock: number
   soldQuantity?: number
   isBestSeller?: boolean
+  sortOrder?: number
   description: string
   active: boolean
 }

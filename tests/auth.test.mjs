@@ -740,7 +740,7 @@ test('product catalog maps API records and sends the requested branch with beare
   const products = await fetchProducts()
   assert.equal(sent.url, '/admin/product')
   assert.equal(sent.method, 'get')
-  assert.deepEqual(sent.params, { action: 'list_product', category: 'all', search: '', status: 'all', menu_id: 'all' })
+  assert.deepEqual(sent.params, { action: 'list_product', category: 'all', search: '', status: 'all', menu_id: 'all', sort: 'manual' })
   assert.equal(sent.headers.get('Authorization'), 'Bearer test-token-only')
   assert.deepEqual(products[0], {
     id: 'PE00048', title: 'DHC Perfect UV Milk', price: 295000, category: 'satuan', categoryName: 'Satuan',
@@ -776,9 +776,11 @@ test('product catalog maps API records and sends the requested branch with beare
   assert.deepEqual(await fetchProducts(), products)
   api.defaults.adapter = async (config) => {
     assert.equal(config.params.branch_id, 'BC-002')
-    return { config, status: 200, headers: {}, data: [menu, { ...menu, branch_id: 'BC-002' }] }
+    assert.equal(config.params.sort, 'manual')
+    return { config, status: 200, headers: {}, data: [menu, { ...menu, branch_id: 'BC-002', sort_order: '2' }] }
   }
-  assert.deepEqual((await fetchProducts(undefined, 'BC-002')).map(({ branchId }) => branchId), ['BC-002'])
+  const manual = await fetchProducts(undefined, 'BC-002', 'manual')
+  assert.deepEqual(manual.map(({ branchId, sortOrder }) => [branchId, sortOrder]), [['BC-002', 2]])
   api.defaults.adapter = async (config) => {
     assert.equal(Object.hasOwn(config.params, 'branch_id'), false)
     return { config, status: 200, headers: {}, data: [menu, { ...menu, branch_id: 'BC-002' }] }
@@ -790,10 +792,8 @@ test('product catalog maps API records and sends the requested branch with beare
   await assert.rejects(fetchProducts(), /Format daftar produk/)
 })
 
-test('Order reads list_product and sorts by name, sales, or final price without changing the catalog', async () => {
+test('Order reads list_product with the requested sort and preserves the server order', async () => {
   const { fetchOrderProducts } = await import('../src/features/products/product-api.ts')
-  const { sortOrderProducts } = await import('../src/features/orders/order-products.ts')
-  const { sortProducts } = await import('../src/features/products/product-sort.ts')
   const { productKey } = await import('../src/features/orders/order-store.ts')
   const product = {
     status: 'active', id: 'PE00004', location: 'EVT-001', branch: 'BC-001',
@@ -806,15 +806,17 @@ test('Order reads list_product and sorts by name, sales, or final price without 
     token: 'test-token-only', expiresAt: Date.now() + 60_000,
   }, false)
   try {
-    let body = { status: 'success', msg: 'Successfully Get Products', sort: 'best_seller', data: [
-      { ...product, sold_qty: 2, is_best_seller: true },
+    let sort = 'manual'
+    let branchId
+    let body = { status: 'success', msg: 'Successfully Get Products', sort: 'manual', data: [
+      { ...product, sold_qty: 2, is_best_seller: true, sort_order: 2 },
       { ...product, branch: 'BC-002', status: 'noactive', stock: 0, use_stock: 'false', img: 'photo.png', discount_type: 'percent', discount: '10', sold_qty: '1', is_best_seller: false },
       { ...product, id: 'PE00005', name: 'Abon', price: '3300' },
     ] }
     api.defaults.adapter = async (config) => {
       assert.equal(config.url, '/product/product')
       assert.equal(config.method, 'get')
-      assert.deepEqual(config.params, { action: 'list_product', sort: 'best_seller' })
+      assert.deepEqual(config.params, { action: 'list_product', sort, ...(branchId && { branch_id: branchId }) })
       assert.equal(config.signal, signal)
       assert.equal(config.headers.get('Authorization'), 'Bearer test-token-only')
       return { config, status: 200, headers: {}, data: body }
@@ -825,7 +827,7 @@ test('Order reads list_product and sorts by name, sales, or final price without 
       id: 'PE00004', title: 'Air Mineral 600ml', store: 'EVT-001', storeId: 'EVT-001', branchId: 'BC-001',
       category: 'satuan', categoryName: 'Satuan', price: 3500, photo: '', image: '',
       description: 'Air mineral dalam kemasan 600ml', discount: 0, discountType: 'Tanpa diskon', active: true, stock: 100,
-      soldQuantity: 2, isBestSeller: true,
+      soldQuantity: 2, isBestSeller: true, sortOrder: 2,
     })
     assert.equal(inactive.stock, 0)
     assert.equal(inactive.useStock, false)
@@ -837,22 +839,58 @@ test('Order reads list_product and sorts by name, sales, or final price without 
     assert.equal(inactive.isBestSeller, false)
     assert.equal(legacy.soldQuantity, undefined)
     assert.equal(legacy.isBestSeller, undefined)
+    assert.equal(legacy.sortOrder, undefined)
     assert.notEqual(productKey(available), productKey(inactive))
-    assert.equal(sortProducts(products, 'default'), products)
-    assert.deepEqual(sortOrderProducts(products, 'name_asc'), [legacy, available, inactive])
-    assert.deepEqual(sortOrderProducts(products, 'name_desc'), [available, inactive, legacy])
-    assert.deepEqual(sortOrderProducts([legacy, inactive, available], 'best_seller'), [available, inactive, legacy])
-    assert.deepEqual(sortProducts([legacy, inactive, available], 'best_seller'), [available, inactive, legacy])
-    assert.deepEqual(sortOrderProducts(products, 'price_asc'), [inactive, legacy, available])
-    assert.deepEqual(sortOrderProducts(products, 'price_desc'), [available, legacy, inactive])
-    const customOrder = [productKey(inactive), 'missing-product', productKey(available)]
-    assert.deepEqual(sortOrderProducts(products, 'custom', customOrder), [inactive, available, legacy])
-    assert.deepEqual(sortOrderProducts([available, legacy], 'custom', customOrder), [available, legacy])
-    assert.deepEqual(products, [available, inactive, legacy])
+    const [first, second, third] = body.data
+    for (sort of ['name_asc', 'name_desc', 'price_asc', 'price_desc', 'best_seller']) {
+      body = { ...body, sort, data: [second, third, first] }
+      assert.deepEqual(await fetchOrderProducts(signal, sort), [inactive, legacy, available])
+    }
+    sort = 'manual'
+    branchId = 'BC-001'
+    assert.deepEqual(await fetchOrderProducts(signal, sort, branchId), [legacy, available])
+    branchId = undefined
     body = []
     assert.deepEqual(await fetchOrderProducts(signal), [])
     body = { status: 'error', msg: 'Produk tidak tersedia' }
     await assert.rejects(fetchOrderProducts(signal), /Produk tidak tersedia/)
+  } finally {
+    useAuthStore.getState().clearSession()
+  }
+})
+
+test('product reorder posts a bulk list with the cashier session and propagates API failures', async () => {
+  const { saveProductOrder } = await import('../src/features/products/product-api.ts')
+  const order = [
+    { id: 'PE00004', sort_order: 1 },
+    { id: 'PE00003', sort_order: 2 },
+    { id: 'PE00008', sort_order: 1 },
+    { id: 'PE00007', sort_order: 2 },
+  ]
+  useAuthStore.getState().setSession({
+    account: { account_id: '2', account_username: 'kasir', event_level: 'kasir' },
+    token: 'cashier-test-token', expiresAt: Date.now() + 60_000,
+  }, false)
+  try {
+    let denied = false
+    api.defaults.adapter = async (config) => {
+      assert.equal(config.url, '/setting.php')
+      assert.equal(config.method, 'post')
+      assert.equal(config.headers.get('Authorization'), 'Bearer cashier-test-token')
+      assert.deepEqual(config.params, { action: 'set_product_sort_bulk' })
+      const data = new URLSearchParams(config.data)
+      assert.deepEqual([...data.keys()], ['product'])
+      assert.deepEqual(JSON.parse(data.get('product')), order)
+      if (denied) {
+        throw new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, undefined, {
+          config, status: 403, headers: {}, data: { status: 'error', msg: 'Akses hanya untuk admin' },
+        })
+      }
+      return { config, status: 200, headers: {}, data: { status: 'success', data: { updated: 4 } } }
+    }
+    await saveProductOrder(order)
+    denied = true
+    await assert.rejects(saveProductOrder(order), (error) => error.response?.status === 403)
   } finally {
     useAuthStore.getState().clearSession()
   }
