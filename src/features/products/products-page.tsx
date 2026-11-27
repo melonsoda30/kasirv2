@@ -1,15 +1,22 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Plus, Search, X } from "lucide-react";
+import { ListOrdered, ListTree, Plus, Search, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CatalogSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getAccountBranches, getAdminBranch, useAuthStore } from "@/features/auth/auth-store";
 import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
+import { useOrderListPreference } from "@/features/orders/order-list-preference";
+import { OrderProductReorderDrawer } from "@/features/orders/order-product-reorder-drawer";
+import { sortOrderProducts, useOrderProducts } from "@/features/orders/order-products";
+import { productKey } from "@/features/orders/order-store";
 import { useProductCatalog } from './use-product-catalog';
 import { useProductStore } from "./product-store";
 import { ProductCard } from "./product-card";
 import { ProductFilterDrawer } from "./product-filter-drawer";
+import { ProductSortDrawer } from "./product-sort-drawer";
+import { productSortOptions, sortProducts, type ProductSort } from "./product-sort";
 import { CategorySettingsDrawer } from "./category-settings-drawer";
 import { useCanManageCategories, useProductCategories } from "./use-product-categories";
 import {
@@ -17,11 +24,29 @@ import {
   matchesProductFilters,
 } from "./product-filters";
 
+const adminProductSortOptions = [
+  ...productSortOptions,
+  { value: "custom", label: "Urutan Kustom" },
+] as const;
+
+type AdminProductSort = ProductSort | "custom";
+type ProductSettings = "categories" | "order";
+
 export function ProductsPage() {
   const branchId = useAuthStore((state) => getAdminBranch(state.session)?.id);
   const catalog = useProductCatalog(branchId);
-  const store = useAuthStore((state) => state.session?.account.store);
+  const account = useAuthStore((state) => state.session?.account);
+  const store = account?.store;
+  const productOrderKey = account
+    ? `kasirv2.admin-product-order:${JSON.stringify([
+        account.account_id ?? account.account_username,
+        store?.id ?? account.event_id,
+        branchId ?? "all",
+      ])}`
+    : undefined;
+  const productOrder = useOrderListPreference(productOrderKey);
   const items = catalog.data ?? [];
+  const customOrder = productOrder.order.length ? productOrder.order : items.map(productKey);
   const updateProduct = useProductStore((state) => state.updateProduct);
   const categories = useProductCategories();
   const canManageCategories = useCanManageCategories();
@@ -39,6 +64,12 @@ export function ProductsPage() {
     ? selectedCategory
     : null;
   const [filters, setFilters] = useState(defaultProductFilters);
+  const [selectedSort, setSelectedSort] = useState<{ key: typeof productOrderKey; value: AdminProductSort }>();
+  const defaultSort = productOrder.order.length ? "custom" : "default";
+  const sort = selectedSort && selectedSort.key === productOrderKey ? selectedSort.value : defaultSort;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState<ProductSettings | null>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
   const availableStores = getAccountBranches(store);
   const branchNames = new Map(availableStores.map(({ id, name }) => [id, name]));
   const statusLabel = filters.status === "active" ? "Aktif" : "Nonaktif";
@@ -58,7 +89,7 @@ export function ProductsPage() {
         ]
       : []),
   ];
-  const products = items.filter(
+  const matchingProducts = items.filter(
     (product) =>
       matchesProductFilters(product, { ...filters, store: branchId ?? filters.store }) &&
       (category === null || product.category === category) &&
@@ -66,6 +97,37 @@ export function ProductsPage() {
         .toLocaleLowerCase("id-ID")
         .includes(search.trim().toLocaleLowerCase("id-ID")),
   );
+  const needsSales = sort === "best_seller" && matchingProducts.some(
+    ({ soldQuantity }) => soldQuantity === undefined,
+  );
+  const salesCatalog = useOrderProducts(needsSales);
+  const salesByKey = needsSales ? salesCatalog.data?.byKey : undefined;
+  const productsWithSales = salesByKey
+    ? matchingProducts.map((product) => {
+        if (product.soldQuantity !== undefined) return product;
+        const soldQuantity = salesByKey.get(productKey(product))?.soldQuantity;
+        return soldQuantity === undefined ? product : { ...product, soldQuantity };
+      })
+    : matchingProducts;
+  const products = sort === "custom"
+    ? sortOrderProducts(productsWithSales, sort, customOrder)
+    : sortProducts(productsWithSales, sort);
+  const salesUnavailable = needsSales && salesCatalog.isSuccess &&
+    !products.some(({ soldQuantity }) => soldQuantity !== undefined);
+
+  function setSort(value: AdminProductSort) {
+    setSelectedSort({ key: productOrderKey, value });
+  }
+
+  function openSettings(panel: ProductSettings) {
+    setSettingsOpen(false);
+    setSettingsPanel(panel);
+  }
+
+  function restoreSettingsFocus(event: Event) {
+    event.preventDefault();
+    settingsButton.current?.focus();
+  }
 
   return (
     <>
@@ -84,9 +146,37 @@ export function ProductsPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          {canManageCategories && (
-            <CategorySettingsDrawer categories={categories} />
-          )}
+          <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                ref={settingsButton}
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-12 shrink-0"
+                aria-label="Pengaturan produk"
+              >
+                <Settings aria-hidden="true" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              aria-label="Pengaturan produk"
+              className="w-56 gap-1 p-1"
+              onCloseAutoFocus={(event) => {
+                if (settingsPanel) event.preventDefault();
+              }}
+            >
+              {canManageCategories && (
+                <Button type="button" variant="ghost" className="justify-start" onClick={() => openSettings("categories")}>
+                  <ListTree aria-hidden="true" /> Pengaturan kategori
+                </Button>
+              )}
+              <Button type="button" variant="ghost" className="justify-start" onClick={() => openSettings("order")}>
+                <ListOrdered aria-hidden="true" /> Pengaturan urutan
+              </Button>
+            </PopoverContent>
+          </Popover>
           <Button asChild size="icon" className="size-12">
             <Link to="/produk/tambah" aria-label="Tambah produk">
               <Plus size={18} aria-hidden="true" />
@@ -125,6 +215,7 @@ export function ProductsPage() {
             hideStore={!!branchId}
             onSave={setFilters}
           />
+          <ProductSortDrawer options={adminProductSortOptions} sort={sort} defaultSort="default" onSave={setSort} />
         </div>
         {filterChips.length > 0 && (
           <div
@@ -160,6 +251,20 @@ export function ProductsPage() {
           <div role="alert" className="space-y-3 py-16 text-center">
             <p className="text-sm">Gagal memuat produk. Silakan coba lagi.</p>
             <Button type="button" variant="outline" onClick={() => void catalog.refetch()} loading={catalog.isFetching}>Coba lagi</Button>
+          </div>
+        )}
+        {needsSales && salesCatalog.isPending && (
+          <p role="status" className="mb-3 text-sm text-muted-foreground">Memuat jumlah terjual...</p>
+        )}
+        {salesUnavailable && (
+          <p role="status" className="mb-3 text-sm text-muted-foreground">Data penjualan produk belum tersedia.</p>
+        )}
+        {needsSales && salesCatalog.isError && !salesCatalog.data && (
+          <div className="mb-3 flex items-center justify-between gap-3 text-sm">
+            <p role="alert">Gagal memuat jumlah terjual.</p>
+            <Button type="button" variant="outline" size="sm" loading={salesCatalog.isFetching} onClick={() => void salesCatalog.refetch()}>
+              Coba lagi
+            </Button>
           </div>
         )}
         {catalog.isSuccess && products.length > 0 && (
@@ -202,6 +307,27 @@ export function ProductsPage() {
           </div>
         )}
       </main>
+      {canManageCategories && (
+        <CategorySettingsDrawer
+          categories={categories}
+          open={settingsPanel === "categories"}
+          onOpenChange={(open) => setSettingsPanel(open ? "categories" : null)}
+          onCloseAutoFocus={restoreSettingsFocus}
+        />
+      )}
+      <OrderProductReorderDrawer
+        key={productOrderKey}
+        products={items}
+        order={customOrder}
+        branchNames={branchId === "all" ? branchNames : undefined}
+        open={settingsPanel === "order"}
+        onOpenChange={(open) => setSettingsPanel(open ? "order" : null)}
+        onCloseAutoFocus={restoreSettingsFocus}
+        onSave={(order) => {
+          productOrder.save(order);
+          setSort("custom");
+        }}
+      />
     </>
   );
 }

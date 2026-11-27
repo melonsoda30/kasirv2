@@ -1,4 +1,4 @@
-import { request } from "../../lib/api";
+import { refreshAuthSession, request } from "../../lib/api";
 import { getAuthSession, useAuthStore } from "../auth/auth-store";
 import { readSessionTokens, type SessionTokenResponse } from "../auth/session-tokens";
 
@@ -9,6 +9,14 @@ type SavedProfile = Partial<ProfileFields> & { img?: string };
 
 // Both roles use the authenticated user's own profile.
 const profileUrl = "/profile/profile";
+let refreshedStoredProfile = false;
+
+export function refreshStoredProfile() {
+  if (refreshedStoredProfile || useAuthStore.getState().sessionVersion !== 0) return;
+  const refresh = refreshAuthSession(true);
+  if (refresh) refreshedStoredProfile = true;
+  return refresh;
+}
 
 async function postProfile<T>(action: string, data: FormData, fallback: string) {
   data.set("action", action);

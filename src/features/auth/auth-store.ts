@@ -7,6 +7,7 @@ export interface Branch {
 
 export interface Account {
   account_img: string
+  account_img_version?: number
   account_username: string
   account_fullname: string
   account_email: string
@@ -179,6 +180,9 @@ export const useAuthStore = create<{
     if (!current || current.token !== previousToken) return false
     const session = { ...current, ...tokens, account: account ?? current.account }
     if (account) {
+      if (account.account_img === current.account.account_img && current.account.account_img_version !== undefined) {
+        session.account = { ...account, account_img_version: current.account.account_img_version }
+      }
       const sameStore = (account.store?.id ?? account.event_id) === (current.account.store?.id ?? current.account.event_id)
       if (!sameStore || !isAdminAccount(account) || !getAdminBranches(account).some(({ id }) => id === session.adminBranchId)) {
         delete session.adminBranchId

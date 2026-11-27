@@ -24,9 +24,14 @@ type PaymentMethodSelection = {
   code: string;
   title: string;
   kind: "cash" | "qris" | "noncash";
+  paymentType?: string;
   fee?: { amount: number; type: string };
   feeBearer?: string | null;
 };
+
+export function acceptsPaymentProof(method?: PaymentMethodSelection) {
+  return (method?.paymentType ?? method?.kind) === "qris";
+}
 
 export function percentageOf(amount: number, percentage: number) {
   return Math.round(amount * (percentage / 100));
@@ -170,6 +175,7 @@ export type SalePaymentChanges = PaymentAdjustments & {
   method: PaymentReceipt["method"];
   recordedMethod?: PaymentReceipt["method"];
   paid?: number;
+  proof?: File;
 };
 
 function storedFixedFee(fees: readonly SaleFee[] | undefined, paymentFee?: number) {
@@ -308,6 +314,24 @@ export async function resolvePendingTransaction(
   );
 }
 
+export function payPendingTransaction(
+  payment: PaymentReceipt,
+  adjustments: Pick<PendingPayment, "additionalPrices" | "discounts"> | undefined,
+  branchId?: string,
+) {
+  const { method, order, paid, change, ppn, subtotal, total } = payment;
+  return resolvePendingTransaction(order.id, {
+    methodCode: method.code,
+    paymentFee: method.fee?.type === "percent" ? method.fee.amount : 0,
+    ...(method.kind === "cash" && { paid, change }),
+    ppn,
+    subtotal,
+    total,
+    additionalPrices: adjustments?.additionalPrices,
+    discounts: adjustments?.discounts,
+  }, branchId);
+}
+
 export async function editPendingOrder(order: OrderDraft, transaction: Sale, methodCode = transaction.paymentCode) {
   if (transaction.id !== order.id || transaction.status !== "pending") {
     throw new Error("Pesanan sudah tidak menunggu pembayaran.");
@@ -345,6 +369,10 @@ export async function editSalePayment(sale: Sale, changes: SalePaymentChanges, b
     throw new Error("Status transaksi ini tidak dapat diedit.");
   }
   if (!changes.method.code.trim()) throw new Error("Pilih metode pembayaran yang aktif.");
+  if (changes.proof) {
+    if (!acceptsPaymentProof(changes.method)) throw new Error("Bukti pembayaran hanya tersedia untuk metode QRIS.");
+    if (changes.proof.size >= MAX_PAYMENT_PROOF_SIZE) throw new Error("Bukti pembayaran harus berukuran di bawah 100 KB.");
+  }
   const { totals, updates } = pendingPaymentDetails(
     pendingOrderDraft(sale), sale, changes.method, changes.recordedMethod, changes,
   );
@@ -365,6 +393,7 @@ export async function editSalePayment(sale: Sale, changes: SalePaymentChanges, b
     payment.change = 0;
   }
   appendPendingPayment(data, payment);
+  if (changes.proof) data.set("payment_upload_file", changes.proof);
   return mutateTransaction(sale.id, "edit_trx", data, { branchId });
 }
 

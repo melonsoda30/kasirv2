@@ -11,7 +11,7 @@ import { ImageInput, type UploadStatus } from "@/components/image-input";
 import { useAuthStore } from "@/features/auth/auth-store";
 import type { Account } from "@/features/auth/auth-store";
 import { saveProfile } from "@/features/profile/profile-api";
-import { API_BASE_URL } from "@/lib/api";
+import { profileImageUrl } from "@/features/profile/profile-image";
 
 export const Route = createFileRoute("/profil_/edit")({
   component: EditProfilePage,
@@ -32,9 +32,7 @@ function EditProfileForm({ account }: { account: Account }) {
     address: account.account_address || "",
   }));
   const [values, setValues] = useState(initialValues);
-  const savedPhoto = account.account_img
-    ? new URL(account.account_img, `${API_BASE_URL.replace(/\/$/, "")}/`).href
-    : "";
+  const savedPhoto = profileImageUrl(account.account_img, account.account_img_version);
   const [photo, setPhoto] = useState(savedPhoto);
   const [image, setImage] = useState<File | null>(null);
   const [upload, setUpload] = useState<UploadStatus>({
@@ -68,6 +66,7 @@ function EditProfileForm({ account }: { account: Account }) {
         ...(profile.phone !== undefined && { account_phone: profile.phone }),
         ...(profile.address !== undefined && { account_address: profile.address }),
         ...(profile.img !== undefined && { account_img: profile.img }),
+        ...(image && { account_img_version: Date.now() }),
       });
       toast.success(message || "Profil diperbarui.");
       await navigate({ to: "/profil" });

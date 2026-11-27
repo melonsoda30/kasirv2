@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Minus, Pencil, Plus } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,6 +8,7 @@ import { ProductImage } from '@/features/products/product-card'
 import { availableProductStock } from '@/features/products/product-stock'
 import { formatCurrency } from '@/lib/currency'
 import { useOrderProducts } from './order-products'
+import { QuantityStepButton } from './order-quantity-buttons'
 import { useOrderStore } from './order-store'
 import type { OrderLine } from './order-store'
 
@@ -35,11 +36,11 @@ export function EditOrderItem({ orderId, item }: { orderId: string; item: OrderL
         <DrawerDescription>{formatCurrency(item.unitPrice)} / item</DrawerDescription>
       </DrawerHeader>
       <DrawerBody><ProductImage product={product} detail /></DrawerBody>
-      <DrawerFooter>
+      <DrawerFooter className="@container">
         <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="icon" className="size-12" aria-label="Kurangi jumlah" disabled={quantity <= 1} onClick={() => setQuantity((value) => value - 1)}><Minus /></Button>
+          <QuantityStepButton delta={-1} label="Kurangi jumlah" disabled={quantity <= 1} onClick={() => setQuantity((value) => value - 1)} />
           <Input type="number" min={1} max={product.useStock === false ? undefined : maximum} step={1} inputMode="numeric" aria-label="Jumlah produk" className="w-16 text-center" value={quantity || ''} onChange={(event) => setQuantity(Number(event.target.value))} />
-          <Button type="button" variant="outline" size="icon" className="size-12" aria-label="Tambah jumlah" disabled={!product.active || quantity >= maximum} onClick={() => setQuantity((value) => value + 1)}><Plus /></Button>
+          <QuantityStepButton delta={1} label="Tambah jumlah" disabled={!product.active || quantity >= maximum} onClick={() => setQuantity((value) => value + 1)} />
         </div><span className="font-semibold tabular-nums">{formatCurrency(item.unitPrice * quantity)}</span></div>
         <div className="modal-actions"><Button type="button" variant="outline" onClick={() => save(0)}>Hapus item</Button><Button type="button" disabled={!Number.isSafeInteger(quantity) || quantity < 1} onClick={() => save(quantity)}>Simpan</Button></div>
       </DrawerFooter>

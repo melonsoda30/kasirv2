@@ -53,6 +53,7 @@ interface TransactionListData {
     trx_location: string;
     trx_date: string;
     trx_branch?: string;
+    trx_branch_name?: string | null;
     trx_sales?: { id: string | number; name: string } | null;
     trx_note?: string | null;
     trx_total: string | number;
@@ -187,11 +188,13 @@ export function mapTransactionList(response: TransactionListResponse | null, all
     const refundReason = (refund?.reason ?? trx.refund_note)?.trim();
     const restored = optionalAmount(trx.restored);
     const netRevenue = optionalAmount(trx.trx_net_total ?? trx.omzet);
+    const branchName = typeof trx.trx_branch_name === "string" ? trx.trx_branch_name.trim() : "";
     return {
       id: trx.trx_id,
       cashier: trx.trx_kasir,
       store: trx.trx_location,
       ...(trx.trx_branch && { branchId: trx.trx_branch }),
+      ...(branchName && { branchName }),
       ...(typeof trx.trx_note === "string" && trx.trx_note.trim()
         ? { note: trx.trx_note.trim() }
         : {}),
@@ -345,6 +348,8 @@ export async function fetchAllTransactions(filters: TransactionFilters, search: 
 
 type TransactionDetailData = TransactionListData["data_trx"][number] & {
   trx_payment_fee?: string | number | null;
+  trx_payment_fee_bearer?: "customer" | "store" | null;
+  payment_fee_bearer?: "customer" | "store" | null;
   trx_address?: string;
   trx_subtotal?: string | number;
   trx_ppn?: string | number;
@@ -390,6 +395,7 @@ export function mapTransactionDetail(
   }).sales[0];
   const salesId = String(response.trx_sales?.id ?? "").trim();
   const paymentFee = optionalAmount(String(response.trx_payment_fee ?? "").trim().replace(/%$/, ""));
+  const feeBearer = response.trx_payment_fee_bearer ?? response.payment_fee_bearer;
   const additionalPrices = Array.isArray(response.trx_additional_price)
     ? response.trx_additional_price.flatMap<SaleFee>((entry) => {
         const fee = mapAdjustment(entry);
@@ -410,7 +416,7 @@ export function mapTransactionDetail(
     ...sale,
     paymentCode: response.trx_payment,
     ...(salesId && { salesId }),
-    ...(paymentFee !== undefined && { paymentFee }),
+    ...(paymentFee !== undefined && { paymentFee: feeBearer === "store" ? 0 : paymentFee }),
     ...(additionalPrices && additionalPrices.length === response.trx_additional_price?.length && { additionalPrices }),
     ...(discounts && discounts.length === response.trx_discount?.length && { discounts }),
     ...(response.trx_subtotal !== undefined && {

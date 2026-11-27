@@ -1,5 +1,5 @@
 import { ProductPrice } from "./product-price";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Ellipsis, Package } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
@@ -136,6 +136,7 @@ export function ProductCard({
     null,
   );
   const optionsButton = useRef<HTMLButtonElement>(null);
+  const stockId = useId();
   const queryClient = useQueryClient();
   const statusMutation = useMutation({
     mutationFn: async (active: boolean) => {
@@ -173,6 +174,7 @@ export function ProductCard({
           type="button"
           className="flex h-full w-full cursor-pointer flex-col rounded-2xl text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={`Lihat detail ${product.title}${branchName ? ` di ${branchName}` : ""}`}
+          aria-describedby={stockId}
         >
           <div className="w-full">
             <ProductImage product={product} />
@@ -186,9 +188,11 @@ export function ProductCard({
                 <p className="wrap-anywhere text-xs text-muted-foreground">{branchName}</p>
               )}
             </div>
-            <div className="flex items-baseline justify-between gap-2">
+            <div className="flex flex-col items-start gap-1">
               <ProductPrice product={product} />
-              {/* <Stock product={product} /> */}
+              <div id={stockId}>
+                <Stock product={product} />
+              </div>
             </div>
           </div>
         </button>

@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { PageLayout } from "@/components/page-layout";
@@ -34,11 +34,14 @@ import {
 } from "@/features/auth/auth-store";
 import { formatCurrency } from "@/lib/currency";
 import {
-  fetchAllTransactions,
   fetchTransactionDetail,
+  fetchTransactions,
+  flattenTransactionPages,
+  isInvalidTransactionCursor,
   transactionListParams,
 } from "@/features/sales/sales-api";
 import type { TransactionFilters } from "@/features/sales/sales-filters";
+import { TransactionPagination } from "@/features/sales/transaction-pagination";
 import { CashSessionControl } from "@/features/cash-session/cash-session-control";
 import { fetchCashSessionReport } from "@/features/cash-session/cash-session-api";
 import {
@@ -63,6 +66,7 @@ const queueDateTime = new Intl.DateTimeFormat("id-ID", {
 });
 
 export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string }) {
+  const queryClient = useQueryClient();
   const account = useAuthStore((state) => state.session?.account);
   const draftOwner = useAuthStore((state) => orderOwner(state.session));
   const cashierBranchId = useAuthStore(
@@ -103,17 +107,19 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
     branchId: cashierBranchId,
     status: "pending",
   };
-  const queue = useQuery({
-    queryKey: [
-      "transactions",
-      account?.account_username,
-      transactionListParams(queueFilters, ""),
-      branchId,
-    ],
-    queryFn: async ({ signal }) => {
-      const queue = await fetchAllTransactions(queueFilters, "", signal);
+  const queueQueryKey = [
+    "transactions",
+    account?.account_username,
+    "queue",
+    transactionListParams(queueFilters, ""),
+    branchId,
+  ] as const;
+  const queue = useInfiniteQuery({
+    queryKey: queueQueryKey,
+    queryFn: async ({ signal, pageParam }) => {
+      const page = await fetchTransactions(queueFilters, "", signal, pageParam);
       const sales = await Promise.all(
-        queue.map((sale) => {
+        page.sales.map((sale) => {
           const wrongBranch =
             branchId &&
             branchId !== "all" &&
@@ -128,10 +134,20 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
           return fetchTransactionDetail(sale.id, signal);
         }),
       );
-      return { sales };
+      return { ...page, sales };
     },
+    initialPageParam: "",
+    getNextPageParam: ({ nextCursor }, _, __, pageParams) =>
+      nextCursor && !pageParams.includes(nextCursor) ? nextCursor : undefined,
+    gcTime: 0,
+    retry: (failureCount, error) => failureCount < 1 && !isInvalidTransactionCursor(error),
     enabled: !!account && !!branchId,
+    meta: { toast: false },
   });
+  const { fetchNextPage } = queue;
+  const loadMore = useCallback(() => {
+    void fetchNextPage({ cancelRefetch: false });
+  }, [fetchNextPage]);
   const orderPath = isCashier ? "/" : "/order";
   const title = isCashier ? "Antrean" : "Cart";
   const headerAction = isCashier && !isAdmin ? (
@@ -161,7 +177,9 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
   for (const entry of sessionReport.data?.transactions ?? []) {
     if (entry.status === "pending") pendingIds.add(entry.id_trx);
   }
-  const visibleQueue = (queue.data?.sales ?? []).filter(
+  const pages = queue.data?.pages;
+  const sales = useMemo(() => flattenTransactionPages(pages ?? []), [pages]);
+  const visibleQueue = sales.filter(
     (sale) =>
       sale.status === "pending" &&
       (!branchId ||
@@ -174,10 +192,16 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
     queue.isPending ||
     (!!sessionId &&
       (cashSession.isPending || (matchingSession && sessionReport.isPending)));
-  const queueReady = !!branchId && !queueLoading && !queue.isError;
+  const queueError = queue.isError && !queue.isFetchNextPageError;
+  const invalidCursor = queue.isError && isInvalidTransactionCursor(queue.error);
+  const queueReady = !!branchId && !queueLoading && !queueError;
   const sessionUnavailable =
     !!sessionId && (!matchingSession || sessionReport.isError);
   const showQueue = queueReady && !sessionUnavailable;
+
+  function restartQueue() {
+    void queryClient.resetQueries({ queryKey: queueQueryKey, exact: true });
+  }
 
   function openCancel(id: string, lastItem = false) {
     cancelPending.reset();
@@ -190,7 +214,8 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
         <div className="bento-surface flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
           <h2 className="text-sm font-semibold">
             Antrean pesanan
-            {queue.data &&
+            {showQueue &&
+              !queue.hasNextPage &&
               (!sessionId || sessionReport.isSuccess) &&
               ` (${visibleQueue.length})`}
           </h2>
@@ -223,7 +248,7 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
             <SkeletonRows className="gap-3" />
           </SkeletonGroup>
         )}
-        {branchId && !queueLoading && queue.isError && (
+        {branchId && !queueLoading && queueError && (
           <div className="flex items-center justify-between gap-3 text-sm">
             <p role="alert">Gagal memuat antrean pesanan.</p>
             <Button
@@ -231,9 +256,9 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
               variant="outline"
               size="sm"
               loading={queue.isFetching}
-              onClick={() => void queue.refetch()}
+              onClick={invalidCursor ? restartQueue : () => void queue.refetch()}
             >
-              Coba lagi
+              {invalidCursor ? "Muat dari awal" : "Coba lagi"}
             </Button>
           </div>
         )}
@@ -469,7 +494,17 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
             })}
           </ul>
         )}
-        {showQueue && visibleQueue.length === 0 && (
+        {showQueue && queue.hasNextPage && (
+          <TransactionPagination
+            fetching={queue.isFetching}
+            loading={queue.isFetchingNextPage}
+            failed={queue.isFetchNextPageError}
+            loadMore={loadMore}
+            restart={invalidCursor ? restartQueue : undefined}
+            itemLabel="pesanan"
+          />
+        )}
+        {showQueue && !queue.hasNextPage && visibleQueue.length === 0 && (
           <p className="py-5 text-center text-sm text-muted-foreground">
             Belum ada antrean pesanan.
           </p>

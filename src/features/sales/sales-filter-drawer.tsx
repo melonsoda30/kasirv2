@@ -14,7 +14,7 @@ import {
   DrawerFooter,
 } from "@/components/ui/drawer";
 import type { usePaymentMethods } from "@/features/orders/payment-methods";
-import { defaultSalesFilters } from "./sales-filters";
+import { defaultSalesFilters, transactionStatusOptions } from "./sales-filters";
 import type { SalesFilters } from "./sales-filters";
 
 export function SalesFilterDrawer({
@@ -27,6 +27,7 @@ export function SalesFilterDrawer({
   onSave,
   hideCashier = false,
   hideStore = false,
+  hideStatus = false,
 }: {
   filters: SalesFilters;
   stores: { value: string; label: string }[];
@@ -37,16 +38,19 @@ export function SalesFilterDrawer({
   onSave: (filters: SalesFilters) => void;
   hideCashier?: boolean;
   hideStore?: boolean;
+  hideStatus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(filters);
   const hasDraftFilters =
     !!(draft.dateRange?.from || draft.dateRange?.to) ||
+    (!hideStatus && draft.status !== "all") ||
     [draft.paymentMethod, hideStore ? 'all' : draft.store, hideCashier ? 'all' : draft.cashier, draft.product].some(
       (value) => !!value && value !== "all",
     );
   const active =
     !!filters.dateRange?.from ||
+    (!hideStatus && filters.status !== "all") ||
     [
       filters.paymentMethod,
       hideStore ? 'all' : filters.store,
@@ -116,6 +120,26 @@ export function SalesFilterDrawer({
               }
             />
           </div>
+          {!hideStatus && (
+            <fieldset className="min-w-0 space-y-3">
+              <legend className="text-sm font-medium">Status transaksi</legend>
+              <div className="flex flex-wrap gap-2">
+                {transactionStatusOptions.map(({ value, label }) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    className="w-fit max-w-full rounded-full px-3 wrap-anywhere whitespace-normal"
+                    variant={draft.status === value ? "default" : "outline"}
+                    aria-pressed={draft.status === value}
+                    onClick={() => setDraft((current) => ({ ...current, status: value }))}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+          )}
           {fields.filter((field) => (!hideCashier || field.key !== 'cashier') && (!hideStore || field.key !== 'store')).map(({ key, label, options }) => (
             <div key={key} className="space-y-2">
               {key === 'store' && (

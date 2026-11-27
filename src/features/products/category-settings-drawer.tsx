@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Pencil, Plus, Settings, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
 import {
@@ -22,7 +22,6 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-  DrawerTrigger,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import {
@@ -57,10 +56,15 @@ function CategorySummary({ category }: { category: Category }) {
 
 export function CategorySettingsDrawer({
   categories,
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
 }: {
   categories: ReturnType<typeof useProductCategories>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [validationError, setValidationError] = useState("");
   const queryClient = useQueryClient();
@@ -110,25 +114,16 @@ export function CategorySettingsDrawer({
   return (
     <Drawer
       open={open}
+      autoFocus
       dismissible={!change.isPending}
       onOpenChange={(next) => {
         if (!next) showEditor(null);
-        setOpen(next);
+        onOpenChange(next);
       }}
     >
-      <DrawerTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="size-12 shrink-0"
-          aria-label="Pengaturan kategori"
-        >
-          <Settings aria-hidden="true" />
-        </Button>
-      </DrawerTrigger>
       <DrawerContent
         aria-describedby={undefined}
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <DrawerHeader>
           <DrawerTitle>

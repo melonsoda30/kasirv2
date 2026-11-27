@@ -59,7 +59,7 @@ const kpiMetrics = [
   { key: "revenue", label: "Pendapatan", format: formatCurrency },
   { key: "trx_count", label: "Transaksi", format: formatNominal },
   { key: "items_sold", label: "Item terjual", format: formatNominal },
-  { key: "aov", label: "Rata-rata nota", format: formatCurrency },
+  { key: "aov", label: "Rata-rata per transaksi", format: formatCurrency },
 ] as const;
 
 const panelGrid =
@@ -118,9 +118,12 @@ function AdminDashboard({
   const query = useDashboardQuery("summary", account, filter, branchId);
   const report = query.data;
   const comparisonLabel = kpiComparisonLabels[period];
-  const productBranchNames = branchId === "all"
-    ? new Map(getAccountBranches(account.store).map(({ id, name }) => [id, name]))
-    : undefined;
+  const productBranchNames =
+    branchId === "all"
+      ? new Map(
+          getAccountBranches(account.store).map(({ id, name }) => [id, name]),
+        )
+      : undefined;
   const rangeLabel =
     period === "range" && dateRange ? formatDateRange(dateRange) : undefined;
   const validationMessage =
@@ -337,7 +340,10 @@ function DashboardPanels({
         <div className={panelGrid}>
           {top_product && (
             <DashboardSection title="Produk terlaris">
-              <TrendingProducts products={top_product.data} branchNames={productBranchNames} />
+              <TrendingProducts
+                products={top_product.data}
+                branchNames={productBranchNames}
+              />
             </DashboardSection>
           )}
           {top_kasir && (

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/drawer";
 import { PaymentAdjustment } from "@/features/orders/payment-adjustment";
 import {
+  acceptsPaymentProof,
   editableSaleFees,
   pendingPaymentDetails,
   type AdditionalFee,
@@ -23,6 +24,8 @@ import {
   findRecordedPaymentMethod,
   usePaymentMethods,
 } from "@/features/orders/payment-methods";
+import { PaymentProofField } from "@/features/orders/payment-proof";
+import { usePaymentProof } from "@/features/orders/use-payment-proof";
 import { pendingOrderDraft } from "@/features/orders/order-store";
 import { formatCurrency } from "@/lib/currency";
 import type { Sale, SaleDiscount, SaleFee } from "./sales-summary";
@@ -59,6 +62,8 @@ export function SalePaymentEditor({
   const [fees, setFees] = useState<SaleFee[]>();
   const [discounts, setDiscounts] = useState<SaleDiscount[]>();
   const [adjustment, setAdjustment] = useState<Adjustment | null>(null);
+  const proofSelection = usePaymentProof();
+  const { proof, reading, error: proofError } = proofSelection;
   const formId = useId();
   const feeList = fees ?? editableSaleFees(sale, recorded);
   const discountList =
@@ -72,13 +77,16 @@ export function SalePaymentEditor({
   );
   const paid = cash === "" ? undefined : Number(cash);
   const isCash = method?.kind === "cash";
+  const isQris = acceptsPaymentProof(method);
+  const savedProof = method?.code === recorded?.code ? sale.paymentProof : undefined;
   const validCash =
     paid !== undefined &&
     Number.isSafeInteger(paid) &&
     paid >= 0 &&
     (paid >= totals.total || (sale.status === "pending" && paid === 0));
   const valid =
-    !!method && !query.isError && !query.isFetching && (!isCash || validCash);
+    !!method && !query.isError && !query.isFetching &&
+    (!isCash || validCash) && (!isQris || (!reading && !proofError));
 
   let initial: AdditionalFee | Discount | null = null;
   if (adjustment?.index !== undefined) {
@@ -150,6 +158,7 @@ export function SalePaymentEditor({
               paid: isCash ? paid : undefined,
               additionalPrices: fees,
               discounts,
+              ...(isQris && proof && { proof: proof.file }),
             });
         }}
       >
@@ -172,7 +181,10 @@ export function SalePaymentEditor({
                 label: title,
               }))}
               disabled={busy}
-              onChange={setSelected}
+              onChange={(value) => {
+                if (value !== method?.code) proofSelection.reset();
+                setSelected(value);
+              }}
             />
           )}
           {query.isError && (
@@ -208,6 +220,17 @@ export function SalePaymentEditor({
               </span>
             )}
           </label>
+        )}
+        {isQris && (
+          <section className="space-y-2 border-t pt-3" aria-label="Bukti pembayaran">
+            <h3 className="font-medium">Bukti pembayaran</h3>
+            <PaymentProofField busy={busy} selection={proofSelection} savedProof={savedProof} />
+            {(proof || proofError) && (
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={proofSelection.reset}>
+                Batalkan foto baru
+              </Button>
+            )}
+          </section>
         )}
         <section
           className="space-y-2 border-t pt-3"

@@ -73,9 +73,9 @@ import { PaymentAdjustment } from "./payment-adjustment";
 import {
   editableSaleFees,
   customerPaymentFee,
+  payPendingTransaction,
   pendingPaymentDetails,
   paymentTotals,
-  resolvePendingTransaction,
   savePayment,
   type AdditionalFee,
   type Discount,
@@ -641,20 +641,12 @@ function PaymentForm({
         discounts: discountList,
         paid: isCash ? (paid ?? 0) : totals.total,
         change: isCash ? change : 0,
-        ppn: ppnRate,
+        ppn: ppnRate ?? pendingSale?.tax,
         proof,
       };
       let transactionId = pendingSale?.id;
       if (pendingSale) {
-        await resolvePendingTransaction(
-          order.id,
-          {
-            ...pendingPayment?.updates,
-            methodCode: method.code,
-            ...(isCash && { paid: payment.paid, change: payment.change }),
-          },
-          branchId,
-        );
+        await payPendingTransaction(payment, pendingPayment?.updates, branchId);
       } else {
         transactionId = await savePayment(
           payment,

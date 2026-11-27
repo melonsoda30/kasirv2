@@ -23,7 +23,6 @@ export interface UserRecord {
 }
 
 export type UserFields = {
-  username?: string;
   fullname?: string;
   email?: string;
   phone?: string;
@@ -36,7 +35,7 @@ export type UserFields = {
 
 export type UserChange =
   | { action: "add_user"; fields: UserFields & { username: string; password?: string } }
-  | { action: "edit_user"; userId: string; fields: UserFields }
+  | { action: "edit_user"; userId: string; fields: UserFields & { username: string } }
   | { action: "status_user"; userId: string; status: UserRecord["user_status"] };
 
 type UserChangeResponse = {
@@ -88,7 +87,8 @@ export async function changeUser(change: UserChange) {
     data.set("status", change.status);
   } else {
     const { fields } = change;
-    for (const field of ["username", "fullname", "email", "phone", "address", "level_user"] as const) {
+    data.set("username", fields.username.trim());
+    for (const field of ["fullname", "email", "phone", "address", "level_user"] as const) {
       if (fields[field] !== undefined) data.set(field, fields[field].trim());
     }
     if (fields.is_cashier !== undefined) data.set("is_cashier", fields.is_cashier ? "1" : "0");

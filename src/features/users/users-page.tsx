@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plus, Search, SlidersHorizontal, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  UserRound,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -17,9 +23,18 @@ import {
   DrawerFooter,
 } from "@/components/ui/drawer";
 import { API_BASE_URL } from "@/lib/api";
-import { getAdminBranch, getBranchFilterId, useAuthStore } from "@/features/auth/auth-store";
+import {
+  getAdminBranch,
+  getBranchFilterId,
+  useAuthStore,
+} from "@/features/auth/auth-store";
 import { AdminBranchSwitcher } from "@/features/auth/admin-branch-drawer";
-import { canManageUsers, useUsers, userDisplayName, type UserRecord } from "./users-api";
+import {
+  canManageUsers,
+  useUsers,
+  userDisplayName,
+  type UserRecord,
+} from "./users-api";
 
 interface UserFilters {
   status: string;
@@ -64,7 +79,9 @@ function UserFilterDrawer({
           size="icon"
           className="relative size-12"
           aria-label={
-            hasFilters(filters) ? "Filter pengguna, filter aktif" : "Filter pengguna"
+            hasFilters(filters)
+              ? "Filter pengguna, filter aktif"
+              : "Filter pengguna"
           }
         >
           <SlidersHorizontal aria-hidden="true" />
@@ -142,8 +159,17 @@ function UserCard({ user }: { user: UserRecord }) {
   return (
     <article className="bento-surface flex items-start gap-3 p-4">
       <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-        <SkeletonImage src={image} alt={`Foto ${userDisplayName(user)}`} loading="lazy" className="size-full"
-          fallback={<UserRound className="size-6 text-muted-foreground" aria-hidden="true" />}
+        <SkeletonImage
+          src={image}
+          alt={`Foto ${userDisplayName(user)}`}
+          loading="lazy"
+          className="size-full"
+          fallback={
+            <UserRound
+              className="size-6 text-muted-foreground"
+              aria-hidden="true"
+            />
+          }
         />
       </div>
       <div className="min-w-0 flex-1">
@@ -151,12 +177,17 @@ function UserCard({ user }: { user: UserRecord }) {
           <h2 className="min-w-0 break-words text-sm font-semibold">
             {userDisplayName(user)}
           </h2>
-          <StatusBadge tone={user.user_status === "active" ? "ready" : "neutral"} className="shrink-0">
+          <StatusBadge
+            tone={user.user_status === "active" ? "ready" : "neutral"}
+            className="shrink-0"
+          >
             {user.user_status === "active" ? "Aktif" : "Nonaktif"}
           </StatusBadge>
         </div>
         <p className="mt-2 break-words text-xs text-muted-foreground">
-          {user.user_store_name || user.user_store_id || "Belum ditetapkan ke toko"}
+          {user.user_store_name ||
+            user.user_store_id ||
+            "Belum ditetapkan ke toko"}
         </p>
         {user.is_cashier && (
           <span className="mt-2 inline-block rounded bg-secondary px-2 py-0.5 text-xs font-medium">
@@ -170,7 +201,9 @@ function UserCard({ user }: { user: UserRecord }) {
 
 export function UsersPage() {
   const usersQuery = useUsers();
-  const branchId = useAuthStore((state) => getBranchFilterId(getAdminBranch(state.session)?.id));
+  const branchId = useAuthStore((state) =>
+    getBranchFilterId(getAdminBranch(state.session)?.id),
+  );
   const canManage = useAuthStore((state) => canManageUsers(state.session?.account));
   const [showTitle, setShowTitle] = useState(true);
   const [search, setSearch] = useState("");
@@ -194,7 +227,9 @@ export function UsersPage() {
   const query = search.trim().toLocaleLowerCase("id-ID");
   const users = (usersQuery.data ?? []).filter(
     (user) =>
-      (!branchId || user.user_branch_id === branchId || user.user_branch_id === "all") &&
+      (!branchId ||
+        user.user_branch_id === branchId ||
+        user.user_branch_id === "all") &&
       (filters.status === "all" || user.user_status === filters.status) &&
       (!query ||
         [
@@ -224,7 +259,9 @@ export function UsersPage() {
               <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">
                 Pengguna {usersQuery.isSuccess && `(${users.length})`}
               </h1>
-              <div className="min-w-0 max-w-[45%] empty:hidden"><AdminBranchSwitcher /></div>
+              <div className="min-w-0 max-w-[45%] empty:hidden">
+                <AdminBranchSwitcher />
+              </div>
             </div>
           </div>
         </div>
@@ -238,7 +275,7 @@ export function UsersPage() {
           />
           <UserFilterDrawer filters={filters} onSave={setFilters} />
           {canManage && (
-            <Button asChild size="icon" className="size-12 shrink-0">
+            <Button asChild size="icon" className="size-12">
               <Link to="/users/tambah" aria-label="Tambah pengguna" title="Tambah pengguna">
                 <Plus aria-hidden="true" />
               </Link>

@@ -28,6 +28,7 @@ export interface Sale {
   store: string
   storeId?: string
   branchId?: string
+  branchName?: string
   cashier: string
   salesperson?: { id: string; name: string }
   salesId?: string

@@ -1,7 +1,7 @@
-import { useState } from "react";
 import type { Account } from "@/features/auth/auth-store";
 import type { Category } from "@/features/products/category-api";
 import type { Product } from "@/features/products/sample-products";
+import { useOrderListPreference } from "./order-list-preference";
 
 export function getOrderCategories(
   products: readonly Product[],
@@ -47,33 +47,11 @@ export function getOrderCategories(
   return [...ordered.values()];
 }
 
-function readCategoryOrder(key: string) {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
 export function useOrderCategoryOrder(account: Account | undefined) {
   const key = `kasirv2.order-category-order:${JSON.stringify([
     account?.account_id ?? account?.account_username,
     account?.store?.id ?? account?.event_id,
     account?.store?.branch_id,
   ])}`;
-  const [saved, setSaved] = useState(() => ({ key, order: account ? readCategoryOrder(key) : [] }));
-  const order = saved.key === key ? saved.order : readCategoryOrder(key);
-
-  function save(order: string[]) {
-    if (!account) return;
-    setSaved({ key, order });
-    try {
-      localStorage.setItem(key, JSON.stringify(order));
-    } catch {
-      // Keep the preference for the current page if storage is unavailable.
-    }
-  }
-
-  return { order, save };
+  return useOrderListPreference(account ? key : undefined);
 }

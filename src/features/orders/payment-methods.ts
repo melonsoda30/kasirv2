@@ -78,6 +78,7 @@ export async function fetchPaymentMethods(
         code: record.payment_code,
         title: record.payment_method || record.payment_code,
         kind,
+        paymentType: type,
         image:
           image && !/^[?#]/.test(image)
             ? paymentImageUrl(image, "transaksi")

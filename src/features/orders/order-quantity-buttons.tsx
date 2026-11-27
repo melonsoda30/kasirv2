@@ -26,18 +26,32 @@ export function OrderQuantityButtons({ orderId, item, catalogProduct }: { orderI
     canIncrease={product.active && item.quantity < Number.MAX_SAFE_INTEGER && availableProductStock(product, reserved) > 0} onChange={change} />
 }
 
+export function QuantityStepButton({ delta, label, disabled, onClick }: {
+  delta: -1 | 1; label: string; disabled?: boolean; onClick: () => void
+}) {
+  const Icon = delta === -1 ? Minus : Plus
+  return (
+    <Button type="button" variant="outline" size="icon"
+      className="size-11 @max-[8rem]:size-9 @min-[26rem]:size-12"
+      aria-label={label} disabled={disabled} onClick={onClick}>
+      <Icon aria-hidden="true" />
+    </Button>
+  )
+}
+
 export function QuantityButtons({ title, quantity, canIncrease, disabled, onChange }: {
   title: string; quantity: number; canIncrease: boolean; disabled?: boolean; onChange: (delta: number) => void
 }) {
   return (
-    <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border p-0.5">
-      <Button type="button" variant="ghost" size="icon" className="size-11" aria-label={`Kurangi ${title}`} disabled={disabled} onClick={() => onChange(-1)}>
-        <Minus aria-hidden="true" />
-      </Button>
-      <span className="min-w-6 text-center text-sm tabular-nums" aria-live="polite">{quantity}</span>
-      <Button type="button" variant="ghost" size="icon" className="size-11" aria-label={`Tambah ${title}`} disabled={disabled || !canIncrease} onClick={() => onChange(1)}>
-        <Plus aria-hidden="true" />
-      </Button>
+    <div className="inline-flex max-w-full shrink-0 items-center gap-1">
+      <QuantityStepButton delta={-1} label={`Kurangi ${title}`} disabled={disabled} onClick={() => onChange(-1)} />
+      <span
+        className="flex h-11 min-w-7 items-center justify-center rounded-lg border border-input px-0.5 text-center text-sm leading-tight tabular-nums wrap-anywhere @max-[8rem]:h-9 @max-[8rem]:min-w-6 @min-[26rem]:h-12 dark:bg-input/30"
+        aria-live="polite"
+      >
+        {quantity}
+      </span>
+      <QuantityStepButton delta={1} label={`Tambah ${title}`} disabled={disabled || !canIncrease} onClick={() => onChange(1)} />
     </div>
   )
 }

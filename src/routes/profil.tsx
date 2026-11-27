@@ -42,12 +42,16 @@ import {
   getCashierBranch,
   getCashierBranches,
   isAdminAccount,
+  isAdminMode,
   isCashierEventLevel,
   useAuthStore,
 } from "@/features/auth/auth-store";
 import { useCashSession } from "@/features/cash-session/cash-session-query";
-import { API_BASE_URL, logoutSession } from "@/lib/api";
-import { useId, useState, type ReactNode } from "react";
+import { DemoResetButton } from "@/features/profile/demo-reset-button";
+import { refreshStoredProfile } from "@/features/profile/profile-api";
+import { profileImageUrl } from "@/features/profile/profile-image";
+import { logoutSession } from "@/lib/api";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 export const Route = createFileRoute("/profil")({
   component: ProfilePage,
@@ -120,9 +124,10 @@ function ProfilePage() {
   const [chooseBranch, setChooseBranch] = useState(false);
   const [branchId, setBranchId] = useState("");
   const branchInputId = useId();
-  const image = account?.account_img
-    ? new URL(account.account_img, `${API_BASE_URL.replace(/\/$/, "")}/`).href
-    : "";
+  const image = profileImageUrl(account?.account_img, account?.account_img_version);
+  useEffect(() => {
+    void refreshStoredProfile()?.catch(() => undefined);
+  }, []);
   function switchMode() {
     if (cashierBranch) {
       useAuthStore.getState().setCashierBranch();
@@ -179,7 +184,9 @@ function ProfilePage() {
                 {account?.account_email || "-"}
               </p>
               {session?.remainingDays !== undefined && (
-                <p className="mt-1 text-xs text-muted-foreground">Sesi berlaku {session.remainingDays} hari</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Sesi berlaku {session.remainingDays} hari
+                </p>
               )}
             </div>
             <Button
@@ -288,6 +295,14 @@ function ProfilePage() {
                 ))}
             </ul>
           </section>
+        )}
+        {(import.meta.env.DEV || import.meta.env.MODE === "staging" || import.meta.env.MODE === "demo") && isAdminMode(session) && (
+          <DemoResetButton
+            className={cn(
+              menuRowClass,
+              "bento-surface text-left text-destructive",
+            )}
+          />
         )}
         <button
           type="button"

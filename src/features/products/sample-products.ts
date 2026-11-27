@@ -28,6 +28,8 @@ export interface Product {
   discountType: string
   useStock?: boolean
   stock: number
+  soldQuantity?: number
+  isBestSeller?: boolean
   description: string
   active: boolean
 }

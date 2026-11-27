@@ -26,18 +26,10 @@ const profileFields = [
   { name: "phone", label: "Nomor HP", type: "tel" },
 ] as const;
 const textFields = [
-  "username",
   ...profileFields.map(({ name }) => name),
   "address",
 ] as const;
-const accessOptions = [
-  { value: "admin", label: "Admin" },
-  { value: "kasir", label: "Kasir" },
-];
-const accessLevels: Record<string, string> = {
-  admin: "Administrator",
-  kasir: "Kasir",
-};
+const cashierLevel = "Kasir";
 
 function BranchField({
   store,
@@ -45,12 +37,14 @@ function BranchField({
   onChange,
   disabled,
   editing = false,
+  invalid = false,
 }: {
   store: NonNullable<Account["store"]>;
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
   editing?: boolean;
+  invalid?: boolean;
 }) {
   const id = useId();
   const { data, isLoading } = useStore();
@@ -58,12 +52,9 @@ function BranchField({
     data?.store_id === store.id
       ? (data.store_branch ?? [])
       : getAccountBranches(store);
-  const options = [
-    ...(!editing ? [{ value: "", label: "Gunakan penempatan bawaan" }] : []),
-    ...branches
-      .filter(({ id }) => id !== "all")
-      .map(({ id, name }) => ({ value: id, label: name })),
-  ];
+  const options = branches
+    .filter(({ id }) => id && id !== "all" && (store.all_branches || id === store.branch_id))
+    .map(({ id, name }) => ({ value: id, label: name }));
   if (editing && value && !options.some((option) => option.value === value)) {
     options.unshift({ value, label: value === "all" ? "Semua cabang" : value });
   }
@@ -76,6 +67,7 @@ function BranchField({
         className="block text-sm font-medium"
       >
         Cabang
+        {!editing && <span aria-hidden="true"> *</span>}
       </label>
       {isLoading && branches.length === 0 ? (
         <SkeletonGroup label="Memuat cabang">
@@ -85,22 +77,29 @@ function BranchField({
         <SelectCombobox
           id={id}
           aria-labelledby={`${id}-label`}
+          aria-describedby={invalid ? `${id}-error` : undefined}
           options={options}
           value={value}
           placeholder="Pilih cabang"
           onChange={onChange}
-          disabled={disabled}
+          disabled={disabled || options.length === 0}
+          invalid={invalid}
           searchable={false}
         />
+      )}
+      {invalid && (
+        <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
+          Pilih cabang pengguna.
+        </p>
       )}
     </div>
   );
 }
 
-function getUserAccess(user: UserRecord | undefined) {
-  if (!user) return "";
+function getUserAccessLabel(user: UserRecord | undefined) {
+  if (!user) return cashierLevel;
   const role = user.user_role?.trim().toLowerCase();
-  if (user.is_cashier || role === "kasir") return "kasir";
+  if (user.is_cashier || role === "kasir") return cashierLevel;
   if (
     role === "admin" ||
     role === "administrator" ||
@@ -109,8 +108,8 @@ function getUserAccess(user: UserRecord | undefined) {
         .toLowerCase()
         .includes("admin"))
   )
-    return "admin";
-  return "";
+    return "Administrator";
+  return user.user_level || "—";
 }
 
 export function UserForm({
@@ -131,10 +130,8 @@ export function UserForm({
     email: user?.user_email ?? "",
     phone: user?.user_phone ?? "",
     address: user?.user_address ?? "",
-    access: getUserAccess(user),
     branchId: user?.user_branch_id ?? "",
   }));
-  const [access, setAccess] = useState(initial.access);
   const [branchId, setBranchId] = useState(initial.branchId);
   const [savedPhoto] = useState(() =>
     user?.user_foto
@@ -147,21 +144,20 @@ export function UserForm({
     busy: false,
     error: "",
   });
-  const [invalidField, setInvalidField] = useState<
-    "username" | "access" | null
-  >(null);
+  const [invalidUsername, setInvalidUsername] = useState(false);
+  const [invalidBranch, setInvalidBranch] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (change.isPending || upload.busy || upload.error) return;
     const form = new FormData(event.currentTarget);
-    const username = String(form.get("username") ?? "").trim();
-    if (!username && (!user || initial.username)) {
-      setInvalidField("username");
+    const username = user ? initial.username.trim() : String(form.get("username") ?? "").trim();
+    if (!username) {
+      setInvalidUsername(true);
       return;
     }
-    if (!user && !access) {
-      setInvalidField("access");
+    if (!user && (!store || !branchId)) {
+      setInvalidBranch(true);
       return;
     }
     const values: UserFields = {};
@@ -169,19 +165,14 @@ export function UserForm({
       const value = String(form.get(field) ?? "").trim();
       if (user ? value !== initial[field].trim() : value) values[field] = value;
     }
-    if (access && access !== initial.access) {
-      const isCashier = access === "kasir";
-      values.level_user = accessLevels[access];
-      if (user || isCashier) values.is_cashier = isCashier;
-    }
     if (image) values.img = image;
 
-    setInvalidField(null);
+    setInvalidUsername(false);
     if (user) {
       if (canChooseBranch && branchId !== initial.branchId) values.branch_id = branchId;
       if (!Object.keys(values).length) return;
       change.mutate(
-        { action: "edit_user", userId: user.user_id, fields: values },
+        { action: "edit_user", userId: user.user_id, fields: { ...values, username } },
         { onSuccess: close },
       );
     } else {
@@ -193,7 +184,9 @@ export function UserForm({
             ...values,
             username,
             password,
-            branch_id: canChooseBranch ? branchId : undefined,
+            level_user: cashierLevel,
+            is_cashier: true,
+            branch_id: branchId,
           },
         },
         { onSuccess: close },
@@ -227,22 +220,23 @@ export function UserForm({
               id={`${id}-username`}
               name="username"
               defaultValue={initial.username}
-              required={!user || !!initial.username}
-              aria-invalid={invalidField === "username"}
+              disabled={!!user}
+              required={!user}
+              aria-invalid={invalidUsername}
               aria-describedby={
-                invalidField === "username" ? `${id}-username-error` : undefined
+                invalidUsername ? `${id}-username-error` : undefined
               }
               onChange={() => {
-                if (invalidField === "username") setInvalidField(null);
+                if (invalidUsername) setInvalidUsername(false);
               }}
             />
-            {invalidField === "username" && (
+            {invalidUsername && (
               <p
                 id={`${id}-username-error`}
                 role="alert"
                 className="text-sm text-destructive"
               >
-                Isi username pengguna.
+                {user ? "Username pengguna belum tersedia." : "Isi username pengguna."}
               </p>
             )}
           </div>
@@ -271,47 +265,28 @@ export function UserForm({
           )}
           <div className="space-y-2">
             <label
-              id={`${id}-access-label`}
               htmlFor={`${id}-access`}
               className="block text-sm font-medium"
             >
               Akses
             </label>
-            <SelectCombobox
-              id={`${id}-access`}
-              aria-labelledby={`${id}-access-label`}
-              aria-describedby={
-                invalidField === "access" ? `${id}-access-error` : undefined
-              }
-              options={accessOptions}
-              value={access}
-              onChange={(value) => {
-                setAccess(value);
-                if (invalidField === "access") setInvalidField(null);
-              }}
-              placeholder="Pilih akses"
-              disabled={change.isPending}
-              invalid={invalidField === "access"}
-              searchable={false}
-            />
-            {invalidField === "access" && (
-              <p
-                id={`${id}-access-error`}
-                role="alert"
-                className="text-sm text-destructive"
-              >
-                Pilih akses pengguna.
-              </p>
-            )}
+            <Input id={`${id}-access`} value={getUserAccessLabel(user)} disabled />
           </div>
-          {canChooseBranch && (
+          {store && (!user || canChooseBranch) && (
             <BranchField
               store={store}
               value={branchId}
-              onChange={setBranchId}
+              onChange={(value) => {
+                setBranchId(value);
+                setInvalidBranch(false);
+              }}
               disabled={change.isPending}
               editing={!!user}
+              invalid={invalidBranch}
             />
+          )}
+          {!user && !store && (
+            <p role="status" className="text-sm text-muted-foreground">Cabang akun belum tersedia.</p>
           )}
         </fieldset>
         <div className="my-5 border-t" />

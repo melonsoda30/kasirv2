@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { getCashierBranch, useAuthStore } from "@/features/auth/auth-store";
+import { getAccountBranches, getCashierBranch, useAuthStore } from "@/features/auth/auth-store";
 import { refreshCashSessionData } from "@/features/cash-session/cash-session-query";
 import {
   editSalePayment,
@@ -104,7 +104,6 @@ function SaleInformation({ sale }: { sale: Sale }) {
 
 function SaleRefundInformation({ sale }: { sale: Sale }) {
   const { refund, netRevenue } = sale;
-  if (!refund && netRevenue === undefined) return null;
   const details = [
     ...(refund?.amount !== undefined
       ? [["Nominal refund", formatCurrency(refund.amount, 2)]]
@@ -121,8 +120,11 @@ function SaleRefundInformation({ sale }: { sale: Sale }) {
     ...(refund?.reason ? [["Alasan refund", refund.reason]] : []),
   ];
   return (
-    <section aria-label="Rincian refund" className="space-y-2 border-t pt-3">
-      <h3 className="text-sm font-semibold">Rincian refund</h3>
+    <section
+      aria-label="Rincian refund"
+      className="bento-surface space-y-3 p-4"
+    >
+      <h3 className="font-semibold">Rincian refund</h3>
       <dl className="space-y-2 text-sm">
         {details.map(([label, value]) => (
           <div key={label} className="flex justify-between gap-4">
@@ -201,8 +203,8 @@ function SaleItemRow({ item, image }: { item: SaleItem; image?: string }) {
     item.unitPrice !== undefined || item.lineTotal !== undefined;
 
   return (
-    <li className="flex items-center gap-3 py-2.5">
-      <div className="relative flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+    <li className="flex items-start gap-3 py-3">
+      <div className="relative flex size-18 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
         <ImageOff className="size-4 text-muted-foreground" aria-hidden="true" />
         <SkeletonImage
           src={item.image || image}
@@ -212,7 +214,9 @@ function SaleItemRow({ item, image }: { item: SaleItem; image?: string }) {
         />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="break-words font-medium">{item.title}</p>
+        <p className="break-words text-sm leading-tight font-medium">
+          {item.title}
+        </p>
         {hasDiscount && (
           <div className="mt-1">
             <ProductPrice
@@ -232,17 +236,17 @@ function SaleItemRow({ item, image }: { item: SaleItem; image?: string }) {
               : formatCurrency(item.unitPrice)}
           </p>
         )}
+        {showTotal && (
+          <p className="mt-1 text-sm leading-tight font-bold tabular-nums">
+            {formatCurrency(lineTotal)}
+          </p>
+        )}
       </div>
-      {showTotal && (
-        <p className="shrink-0 text-sm font-medium tabular-nums">
-          {formatCurrency(lineTotal)}
-        </p>
-      )}
     </li>
   );
 }
 
-function SaleCardContent({ sale }: { sale: Sale }) {
+function SaleCardContent({ sale, location }: { sale: Sale; location: string }) {
   const date = new Date(sale.occurredAt);
   const cash = ["tunai", "cash"].includes(
     sale.paymentMethod.trim().toLowerCase(),
@@ -255,7 +259,7 @@ function SaleCardContent({ sale }: { sale: Sale }) {
       <span className="flex items-start justify-between gap-3">
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold">
-            {sale.store}
+            {location}
           </span>
           <span className="mt-1 block text-xs text-muted-foreground">
             {Number.isNaN(date.getTime())
@@ -336,6 +340,8 @@ export function SalesTransactionList({
     (state) => state.session?.account.account_username,
   );
   const branchId = useAuthStore((state) => getCashierBranch(state.session)?.id);
+  const store = useAuthStore((state) => state.session?.account.store);
+  const branches = getAccountBranches(store);
   const detail = useQuery({
     queryKey: ["transactions", "detail", username, selectedId],
     queryFn: ({ signal }) => fetchTransactionDetail(selectedId!, signal),
@@ -455,9 +461,20 @@ export function SalesTransactionList({
                 : listedSale;
             const completedRefund =
               refund.data?.id === listedSale.id ? refund.data : undefined;
+            const cardSale = completedRefund
+              ? { ...listedSale, ...completedRefund }
+              : listedSale;
+            const cardLocation = cardSale.branchName ?? cardSale.store;
             const sale = completedRefund
               ? { ...transaction, ...completedRefund }
               : transaction;
+            const itemCount = sale.items.reduce(
+              (count, item) => count + item.quantity,
+              0,
+            );
+            const hasRefundDetails =
+              !!sale.refund || sale.netRevenue !== undefined;
+            const note = sale.note?.trim();
             let subtotal = sale.subtotal;
             if (
               subtotal === undefined &&
@@ -522,16 +539,10 @@ export function SalesTransactionList({
                   <DrawerTrigger asChild>
                     <button
                       type="button"
-                      aria-label={`Detail penjualan ${sale.id}, ${sale.store}`}
+                      aria-label={`Detail penjualan ${cardSale.id}, ${cardLocation}`}
                       className="bento-surface w-full p-4 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <SaleCardContent
-                        sale={
-                          completedRefund
-                            ? { ...listedSale, ...completedRefund }
-                            : listedSale
-                        }
-                      />
+                      <SaleCardContent sale={cardSale} location={cardLocation} />
                     </button>
                   </DrawerTrigger>
                   <DrawerContent>
@@ -599,16 +610,22 @@ export function SalesTransactionList({
                       </>
                     )}
                     {showingDetail && (
-                      <DrawerBody className="flow-panel space-y-3">
+                      <DrawerBody
+                        className="flow-panel grid auto-rows-max grid-cols-1 content-start gap-3 touch-pan-y sm:grid-cols-2"
+                        data-vaul-no-drag=""
+                      >
                         {detailLoading && (
-                          <SkeletonGroup label="Memuat detail transaksi">
+                          <SkeletonGroup
+                            label="Memuat detail transaksi"
+                            className="sm:col-span-2"
+                          >
                             <SkeletonRows media="thumbnail" />
                           </SkeletonGroup>
                         )}
                         {!detailLoading && detail.isError && (
                           <div
                             role="alert"
-                            className="space-y-3 py-6 text-center"
+                            className="space-y-3 py-6 text-center sm:col-span-2"
                           >
                             <p className="text-sm">
                               Gagal memuat detail transaksi.
@@ -625,13 +642,26 @@ export function SalesTransactionList({
                         )}
                         {!detailLoading && !detail.isError && (
                           <>
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center justify-between gap-3 sm:col-span-2">
                               <p className="min-w-0 break-words text-base font-semibold">
-                                {sale.store}
+                                {branches.find(({ id }) => id === sale.branchId)?.name || sale.store}
                               </p>
                               <SaleStatusBadge status={sale.status} />
                             </div>
-                            <section aria-label="Produk terjual">
+                            <section
+                              aria-label="Produk terjual"
+                              className="bento-surface px-4"
+                            >
+                              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-3">
+                                <h3 className="font-semibold">
+                                  Produk terjual
+                                </h3>
+                                {sale.items.length > 0 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatNominal(itemCount)} item
+                                  </span>
+                                )}
+                              </div>
                               {sale.items.length > 0 && (
                                 <ul className="divide-y">
                                   {sale.items.map((item, index) => (
@@ -644,15 +674,36 @@ export function SalesTransactionList({
                                 </ul>
                               )}
                               {!sale.items.length && (
-                                <p className="text-sm text-muted-foreground">
+                                <p className="py-3 text-sm text-muted-foreground">
                                   Rincian item belum tersedia.
                                 </p>
+                              )}
+                              {note && (
+                                <div className="space-y-1 border-t py-3">
+                                  <h4 className="font-medium">
+                                    Catatan pesanan
+                                  </h4>
+                                  <p className="wrap-anywhere whitespace-pre-wrap text-muted-foreground">
+                                    {note}
+                                  </p>
+                                </div>
                               )}
                             </section>
                             <section
                               aria-label="Ringkasan pembayaran"
-                              className="space-y-2 border-t pt-3"
+                              className="bento-surface space-y-2 p-4"
                             >
+                              <h3 className="font-semibold">
+                                Ringkasan pembayaran
+                              </h3>
+                              <div className="flex justify-between gap-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  Metode pembayaran
+                                </span>
+                                <span className="min-w-0 wrap-anywhere text-right font-medium">
+                                  {sale.paymentMethod}
+                                </span>
+                              </div>
                               {subtotal !== undefined && (
                                 <div className="flex justify-between gap-3 text-sm">
                                   <span className="text-muted-foreground">
@@ -665,9 +716,9 @@ export function SalesTransactionList({
                               )}
                               {additionalPrices.length > 0 && (
                                 <div className="space-y-1 border-t pt-2 text-sm">
-                                  <h3 className="font-medium">
+                                  <h4 className="font-medium">
                                     Biaya tambahan
-                                  </h3>
+                                  </h4>
                                   <dl className="space-y-1">
                                     {additionalPrices.map(
                                       ({ title, value }, index) => (
@@ -692,35 +743,40 @@ export function SalesTransactionList({
                                   aria-label="Diskon"
                                   className="space-y-1 border-t pt-2 text-sm"
                                 >
-                                  <h3 className="font-medium">Diskon</h3>
+                                  <h4 className="font-medium">Diskon</h4>
                                   <dl className="space-y-1">
-                                    {discounts.map(({ title, type, value }, index) => {
-                                      if (!value) return null;
-                                      const percent = type === "percent";
-                                      const amount = percent
-                                        ? paymentTotals?.discountAmounts[index]
-                                        : value;
-                                      const rate = percent
-                                        ? `${value.toLocaleString("id-ID")}%`
-                                        : undefined;
-                                      return (
-                                        <div
-                                          key={`${title}-${index}`}
-                                          className="flex justify-between gap-3"
-                                        >
-                                          <dt className="min-w-0 break-words text-muted-foreground">
-                                            {title}
-                                            {rate && amount !== undefined &&
-                                              ` (${rate})`}
-                                          </dt>
-                                          <dd className="shrink-0 tabular-nums">
-                                            {amount === undefined
-                                              ? `−${rate}`
-                                              : formatCurrency(-amount)}
-                                          </dd>
-                                        </div>
-                                      );
-                                    })}
+                                    {discounts.map(
+                                      ({ title, type, value }, index) => {
+                                        if (!value) return null;
+                                        const percent = type === "percent";
+                                        const amount = percent
+                                          ? paymentTotals?.discountAmounts[
+                                              index
+                                            ]
+                                          : value;
+                                        const rate = percent
+                                          ? `${value.toLocaleString("id-ID")}%`
+                                          : undefined;
+                                        return (
+                                          <div
+                                            key={`${title}-${index}`}
+                                            className="flex justify-between gap-3"
+                                          >
+                                            <dt className="min-w-0 break-words text-muted-foreground">
+                                              {title}
+                                              {rate &&
+                                                amount !== undefined &&
+                                                ` (${rate})`}
+                                            </dt>
+                                            <dd className="shrink-0 tabular-nums">
+                                              {amount === undefined
+                                                ? `−${rate}`
+                                                : formatCurrency(-amount)}
+                                            </dd>
+                                          </div>
+                                        );
+                                      },
+                                    )}
                                   </dl>
                                 </section>
                               )}
@@ -763,14 +819,6 @@ export function SalesTransactionList({
                                   {formatCurrency(sale.total)}
                                 </span>
                               </div>
-                              <div className="flex justify-between gap-3 text-sm">
-                                <h3 className="text-muted-foreground">
-                                  Metode pembayaran
-                                </h3>
-                                <p className="min-w-0 break-words text-right font-medium">
-                                  {sale.paymentMethod}
-                                </p>
-                              </div>
                               {isCash && (
                                 <div className="flex items-center justify-between gap-3 text-sm">
                                   <span className="text-muted-foreground">
@@ -795,43 +843,57 @@ export function SalesTransactionList({
                                 </div>
                               )}
                             </section>
-                            <SaleRefundInformation sale={sale} />
+                            {hasRefundDetails && (
+                              <SaleRefundInformation sale={sale} />
+                            )}
                             <section
                               aria-label="Informasi transaksi"
-                              className="border-t pt-3"
+                              className={cn(
+                                "bento-surface space-y-3 p-4",
+                                !hasRefundDetails && "sm:col-span-2",
+                              )}
                             >
+                              <h3 className="font-semibold">
+                                Informasi transaksi
+                              </h3>
                               <SaleInformation sale={sale} />
                             </section>
-                            {sale.note && (
-                              <section className="space-y-1 border-t pt-3">
-                                <h3 className="font-medium">Catatan pesanan</h3>
-                                <p className="whitespace-pre-wrap break-words">
-                                  {sale.note}
-                                </p>
-                              </section>
-                            )}
                             {sale.paymentProof && (
                               <section
                                 aria-label="Bukti pembayaran"
-                                className="space-y-2 border-t pt-3"
+                                className="bento-surface overflow-hidden sm:col-span-2"
                               >
-                                <h3 className="text-sm font-semibold">
+                                <h3 className="border-b p-4 font-semibold">
                                   Bukti pembayaran
                                 </h3>
                                 <a
                                   href={sale.paymentProof.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="block space-y-2 rounded-lg border p-3 text-sm"
+                                  aria-label={
+                                    sale.paymentProof.type === "image"
+                                      ? `Buka bukti pembayaran ${sale.id}`
+                                      : undefined
+                                  }
+                                  className={cn(
+                                    "block focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                                    sale.paymentProof.type !== "image" &&
+                                      "p-4 font-medium text-link underline",
+                                  )}
                                 >
                                   {sale.paymentProof.type === "image" ? (
                                     <SkeletonImage
                                       src={sale.paymentProof.url}
                                       alt={`Bukti pembayaran ${sale.id}`}
                                       loading="lazy"
-                                      className="rounded-md"
-                                      imageClassName="h-auto max-h-96 w-full object-contain"
-                                      pendingClassName="h-48"
+                                      className="bg-muted/45 p-4"
+                                      imageClassName="mx-auto h-auto max-w-full object-contain"
+                                      pendingClassName="min-h-48"
+                                      fallback={
+                                        <span className="block p-4 font-medium text-link underline">
+                                          Buka bukti pembayaran
+                                        </span>
+                                      }
                                     />
                                   ) : (
                                     (sale.paymentProof.name ??

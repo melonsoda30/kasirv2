@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { ArrowDown, ArrowUp, GripVertical, ListOrdered } from "lucide-react";
-import { motion, Reorder, useDragControls } from "motion/react";
+import { ListTree } from "lucide-react";
+import { motion, Reorder } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { SkeletonGroup, SkeletonRows } from "@/components/ui/skeleton";
-import { buttonVariants } from "@/components/ui/button-variants";
 import {
   Drawer,
   DrawerClose,
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/drawer";
 import { editCategory, type Category } from "@/features/products/category-api";
 import type { useProductCategories } from "@/features/products/use-product-categories";
+import { OrderReorderItem } from "./order-reorder-item";
 
 type DrawerProps =
   | { source: "store"; query: ReturnType<typeof useProductCategories> }
@@ -25,71 +25,6 @@ type DrawerProps =
       categories: Category[];
       onSave: (order: string[]) => void;
     };
-
-function ReorderCategory({
-  category,
-  disabled,
-  moveUp,
-  moveDown,
-}: {
-  category: Category;
-  disabled: boolean;
-  moveUp?: () => void;
-  moveDown?: () => void;
-}) {
-  const controls = useDragControls();
-  return (
-    <Reorder.Item
-      value={category.category_id ?? category.category_slug}
-      dragListener={false}
-      dragControls={controls}
-      aria-label={category.category_name}
-      aria-disabled={disabled || undefined}
-      className="relative flex items-center gap-2 bg-popover py-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-    >
-      <div className="min-w-0 flex-1">
-        <p className="break-words font-medium">{category.category_name}</p>
-        <p className="text-xs text-muted-foreground">
-          {category.product_count} produk
-        </p>
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        disabled={disabled || !moveUp}
-        aria-label={`Naikkan ${category.category_name}`}
-        onClick={moveUp}
-      >
-        <ArrowUp aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        disabled={disabled || !moveDown}
-        aria-label={`Turunkan ${category.category_name}`}
-        onClick={moveDown}
-      >
-        <ArrowDown aria-hidden="true" />
-      </Button>
-      <span
-        aria-hidden="true"
-        className={buttonVariants({
-          variant: "outline",
-          size: "icon",
-          className: "touch-none cursor-grab active:cursor-grabbing",
-        })}
-        data-vaul-no-drag=""
-        onPointerDown={(event) => {
-          if (!disabled) controls.start(event);
-        }}
-      >
-        <GripVertical />
-      </span>
-    </Reorder.Item>
-  );
-}
 
 export function OrderCategoryReorderDrawer(props: DrawerProps) {
   const [open, setOpen] = useState(false);
@@ -173,7 +108,7 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
           className="shrink-0"
           aria-label="Atur urutan kategori"
         >
-          <ListOrdered aria-hidden="true" />
+          <ListTree aria-hidden="true" />
         </Button>
       </DrawerTrigger>
       <DrawerContent
@@ -238,9 +173,11 @@ export function OrderCategoryReorderDrawer(props: DrawerProps) {
               aria-label="Susun kategori"
             >
               {orderedCategories.map((category, index) => (
-                <ReorderCategory
+                <OrderReorderItem
                   key={category.category_slug}
-                  category={category}
+                  value={category.category_id ?? category.category_slug}
+                  label={category.category_name}
+                  description={`${category.product_count} produk`}
                   disabled={disabled}
                   moveUp={index > 0 ? () => move(index, index - 1) : undefined}
                   moveDown={

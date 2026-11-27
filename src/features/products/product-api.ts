@@ -1,8 +1,14 @@
 import { API_BASE_URL, isEmptyListResponse, request } from "../../lib/api";
 import { getBranchFilterId } from "../auth/auth-store";
+import { getProductDiscountError } from "./product-pricing";
 import type { Product } from "./sample-products";
 
-interface ProductRecord {
+interface ProductSalesRecord {
+  sold_qty?: string | number | null;
+  is_best_seller?: boolean;
+}
+
+interface ProductRecord extends ProductSalesRecord {
   status: string;
   product_sku: string;
   store_id: string;
@@ -21,7 +27,7 @@ interface ProductRecord {
   discount: string | number;
 }
 
-interface OrderProductRecord {
+interface OrderProductRecord extends ProductSalesRecord {
   status: string;
   id: string;
   location: string;
@@ -59,6 +65,7 @@ export function mapProductRecord(
   endpoint: ProductListEndpoint = adminProductEndpoint,
 ): Product {
   const status = record.status.trim().toLowerCase();
+  const soldQuantity = Number(record.sold_qty ?? NaN);
   const imagePath = record.product_img?.trim() ?? "";
   const branchName = record.branch_name?.trim();
   const stockQuantity =
@@ -113,6 +120,8 @@ export function mapProductRecord(
     ].includes(status),
     ...(useStock !== undefined && { useStock }),
     stock: number(stockQuantity ?? 0),
+    ...(Number.isSafeInteger(soldQuantity) && soldQuantity >= 0 && { soldQuantity }),
+    ...(typeof record.is_best_seller === "boolean" && { isBestSeller: record.is_best_seller }),
   };
 }
 
@@ -134,6 +143,8 @@ function mapOrderProductRecord(record: OrderProductRecord): Product {
       stock_quantity: record.stock,
       stock_qty: record.stock_qty,
       use_stock: record.use_stock,
+      sold_qty: record.sold_qty,
+      is_best_seller: record.is_best_seller,
     },
     orderProductEndpoint,
   );
@@ -183,7 +194,7 @@ export async function fetchProducts(signal?: AbortSignal, branchId = PRODUCT_EVE
 export function fetchOrderProducts(signal?: AbortSignal) {
   return fetchProductList(
     orderProductEndpoint,
-    { action: "list_product" },
+    { action: "list_product", sort: "best_seller" },
     mapOrderProductRecord,
     signal,
   );
@@ -264,6 +275,10 @@ export async function saveProduct(input: SaveProductInput): Promise<string> {
   let discountType = "none";
   if (input.discountType === "Persentase (%)") discountType = "percent";
   if (input.discountType === "Nominal") discountType = "fixed";
+  if (discountType !== "none") {
+    const discountError = getProductDiscountError(input);
+    if (discountError) throw new Error(discountError);
+  }
   const data = new FormData();
   data.set("action", input.menuId ? "edit_product" : "add_product");
   if (input.menuId) data.set("product_sku", input.menuId);

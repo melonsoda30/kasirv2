@@ -22,6 +22,7 @@ import { useCanManageCategories, useProductCategories } from "./use-product-cate
 import { isAxiosError } from "axios";
 import type { Product } from "./sample-products";
 import { productSchema } from "./product-schema";
+import { getProductDiscountError } from "./product-pricing";
 import { ProductStockToggle } from "./product-stock-toggle";
 import { Plus, X } from "lucide-react";
 import { ImageInput, type UploadStatus } from "@/components/image-input";
@@ -447,50 +448,54 @@ export function ProductForm({ product, branchGuardRef }: {
                 </div>
               )}
             </form.Field>
-            <form.Subscribe selector={(state) => state.values.discountType}>
-              {(discountType) => {
+            <form.Subscribe selector={(state) => [state.values.discountType, state.values.price] as const}>
+              {([discountType, price]) => {
                 if (!discountType || discountType === discountTypes[0]) return null;
                 return (
                   <form.Field name="discount">
-                    {(field) => (
-                      <div className="space-y-2">
-                        {discountType === "Persentase (%)" ? (
-                          <Input
-                            id="product-discount"
-                            name={field.name}
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            max="100"
-                            aria-label="Persentase diskon"
-                            placeholder="Persentase diskon"
-                            value={field.state.value}
-                            onChange={(event) =>
-                              field.handleChange(event.target.value)
-                            }
-                            onBlur={field.handleBlur}
-                            aria-invalid={!field.state.meta.isValid}
-                            aria-describedby="discount-error"
-                          />
-                        ) : (
-                          <InputNominal
-                            id="product-discount"
-                            name={field.name}
-                            aria-label="Nominal diskon"
-                            placeholder="Nominal diskon"
-                            value={field.state.value}
-                            onValueChange={field.handleChange}
-                            onBlur={field.handleBlur}
-                            aria-invalid={!field.state.meta.isValid}
-                            aria-describedby="discount-error"
-                          />
-                        )}
-                        <Errors
-                          id="discount-error"
-                          errors={field.state.meta.errors}
-                        />
-                      </div>
-                    )}
+                    {(field) => {
+                      const discountError = getProductDiscountError({
+                        price,
+                        discount: field.state.value,
+                        discountType,
+                      });
+                      return (
+                        <div className="space-y-2">
+                          {discountType === "Persentase (%)" ? (
+                            <Input
+                              id="product-discount"
+                              name={field.name}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              max="100"
+                              aria-label="Persentase diskon"
+                              placeholder="Persentase diskon"
+                              value={field.state.value}
+                              onChange={(event) =>
+                                field.handleChange(event.target.value)
+                              }
+                              onBlur={field.handleBlur}
+                              aria-invalid={!!discountError}
+                              aria-describedby="discount-error"
+                            />
+                          ) : (
+                            <InputNominal
+                              id="product-discount"
+                              name={field.name}
+                              aria-label="Nominal diskon"
+                              placeholder="Nominal diskon"
+                              value={field.state.value}
+                              onValueChange={field.handleChange}
+                              onBlur={field.handleBlur}
+                              aria-invalid={!!discountError}
+                              aria-describedby="discount-error"
+                            />
+                          )}
+                          <Errors id="discount-error" errors={discountError ? [discountError] : []} />
+                        </div>
+                      );
+                    }}
                   </form.Field>
                 );
               }}
