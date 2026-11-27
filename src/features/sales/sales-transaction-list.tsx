@@ -113,7 +113,7 @@ function SaleRefundInformation({ sale }: { sale: Sale }) {
       ? [["Metode refund", refund.method === "cash" ? "Tunai" : refund.method]]
       : []),
     ...(netRevenue !== undefined
-      ? [["Omzet bersih", formatCurrency(netRevenue, 2)]]
+      ? [["Penjualan bersih", formatCurrency(netRevenue, 2)]]
       : []),
     ...(refund?.restored !== undefined
       ? [["Stok dikembalikan", `${formatNominal(refund.restored)} unit`]]
@@ -379,7 +379,7 @@ export function SalesTransactionList({
       setRefundConfirmation(null);
       setView("detail");
       toast.success("Refund berhasil diproses.", {
-        description: `Tunai ${formatCurrency(result.refund.amount, 2)} · Omzet bersih ${formatCurrency(result.netRevenue, 2)}`,
+        description: `Tunai ${formatCurrency(result.refund.amount, 2)} · Penjualan bersih ${formatCurrency(result.netRevenue, 2)}`,
       });
     },
     onSettled: async (_result, _error, { option }) => {
@@ -428,7 +428,7 @@ export function SalesTransactionList({
       {!queue && (
         <div className="flex items-center justify-between gap-3">
           <h2 id="sales-transactions-title" className="font-semibold">
-            Daftar transaksi
+            History Transaksi
           </h2>
           {headerAction ?? (
             <span className="text-sm text-muted-foreground">

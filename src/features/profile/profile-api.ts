@@ -5,7 +5,7 @@ import { readSessionTokens, type SessionTokenResponse } from "../auth/session-to
 const profileFields = ["username", "fullname", "email", "phone", "address"] as const;
 type ProfileFields = Record<(typeof profileFields)[number], string>;
 export type ProfileInput = Partial<ProfileFields> & { image?: File | null };
-type SavedProfile = ProfileFields & { id: string; img: string; store_id: string; branch_id: string };
+type SavedProfile = Partial<ProfileFields> & { img?: string };
 
 // Both roles use the authenticated user's own profile.
 const profileUrl = "/profile/profile";

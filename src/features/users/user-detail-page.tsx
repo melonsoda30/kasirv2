@@ -11,6 +11,9 @@ import { canManageUsers, userDisplayName, type UserRecord } from './users-api'
 export function UserDetailPage({ user }: { user: UserRecord }) {
   const account = useAuthStore((state) => state.session?.account)
   const accountStore = account?.store
+  const isOwnAccount = account?.account_id === user.user_id
+  const canEditUser = !isOwnAccount
+  const canChangeStatus = !isOwnAccount || user.user_status !== 'active'
   const name = userDisplayName(user)
   const image = user.user_foto ? new URL(user.user_foto, `${API_BASE_URL.replace(/\/$/, '')}/`).href : ''
   const branch = accountStore?.id === user.user_store_id
@@ -34,14 +37,16 @@ export function UserDetailPage({ user }: { user: UserRecord }) {
           <h2 className="break-words font-semibold">{name}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{user.user_status === 'active' ? 'Aktif' : 'Nonaktif'}</p>
         </div>
-        {canManageUsers(account) && (
+        {canManageUsers(account) && (canEditUser || canChangeStatus) && (
           <div className="flex shrink-0 items-center gap-2">
-            <UserFormDrawer user={user}>
-              <Button type="button" variant="outline" size="icon" aria-label="Edit pengguna" title="Edit pengguna">
-                <Pencil aria-hidden="true" />
-              </Button>
-            </UserFormDrawer>
-            {(account?.account_id !== user.user_id || user.user_status !== 'active') && <UserStatusDialog user={user} />}
+            {canEditUser && (
+              <UserFormDrawer user={user}>
+                <Button type="button" variant="outline" size="icon" aria-label="Edit pengguna" title="Edit pengguna">
+                  <Pencil aria-hidden="true" />
+                </Button>
+              </UserFormDrawer>
+            )}
+            {canChangeStatus && <UserStatusDialog user={user} />}
           </div>
         )}
       </div>

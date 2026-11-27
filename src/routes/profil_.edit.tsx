@@ -24,13 +24,13 @@ function EditProfilePage() {
 
 function EditProfileForm({ account }: { account: Account }) {
   const navigate = useNavigate();
-  const initialValues = {
+  const [initialValues] = useState(() => ({
     username: account.account_username || "",
     fullname: account.account_fullname || "",
     email: account.account_email || "",
     phone: account.account_phone || "",
     address: account.account_address || "",
-  };
+  }));
   const [values, setValues] = useState(initialValues);
   const savedPhoto = account.account_img
     ? new URL(account.account_img, `${API_BASE_URL.replace(/\/$/, "")}/`).href
@@ -62,12 +62,12 @@ function EditProfileForm({ account }: { account: Account }) {
       const current = useAuthStore.getState().session;
       if (!current || current.account.account_id !== account.account_id) return;
       useAuthStore.getState().updateAccount({
-        account_username: profile.username,
-        account_fullname: profile.fullname,
-        account_email: profile.email,
-        account_phone: profile.phone,
-        account_address: profile.address,
-        account_img: profile.img,
+        ...(profile.username !== undefined && { account_username: profile.username }),
+        ...(profile.fullname !== undefined && { account_fullname: profile.fullname }),
+        ...(profile.email !== undefined && { account_email: profile.email }),
+        ...(profile.phone !== undefined && { account_phone: profile.phone }),
+        ...(profile.address !== undefined && { account_address: profile.address }),
+        ...(profile.img !== undefined && { account_img: profile.img }),
       });
       toast.success(message || "Profil diperbarui.");
       await navigate({ to: "/profil" });

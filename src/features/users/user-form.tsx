@@ -167,16 +167,9 @@ export function UserForm({
     const values: UserFields = {};
     for (const field of textFields) {
       const value = String(form.get(field) ?? "").trim();
-      if (user || value) values[field] = value;
+      if (user ? value !== initial[field].trim() : value) values[field] = value;
     }
-    if (user && (!access || access === initial.access)) {
-      values.level_user =
-        user.user_level?.trim() ||
-        accessLevels[initial.access] ||
-        user.user_level_slug ||
-        "";
-      values.is_cashier = user.is_cashier ?? initial.access === "kasir";
-    } else if (access) {
+    if (access && access !== initial.access) {
       const isCashier = access === "kasir";
       values.level_user = accessLevels[access];
       if (user || isCashier) values.is_cashier = isCashier;
@@ -185,7 +178,8 @@ export function UserForm({
 
     setInvalidField(null);
     if (user) {
-      values.branch_id = branchId || initial.branchId;
+      if (canChooseBranch && branchId !== initial.branchId) values.branch_id = branchId;
+      if (!Object.keys(values).length) return;
       change.mutate(
         { action: "edit_user", userId: user.user_id, fields: values },
         { onSuccess: close },

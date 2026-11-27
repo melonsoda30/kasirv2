@@ -105,12 +105,12 @@ function RevenueBar({ label, revenue, percent, detail, secondary }: {
 }
 
 export function BranchRevenue({ branches }: { branches: NonNullable<DashboardSummaryData["top_branch"]>["data"] }) {
-  if (!branches.length) return <p className="text-sm text-muted-foreground">Belum ada omzet cabang.</p>;
+  if (!branches.length) return <p className="text-sm text-muted-foreground">Belum ada pendapatan cabang.</p>;
   return (
     <ol className="divide-y">
       {branches.map(({ branch_id, branch_name, revenue, share }) => (
         <RevenueBar key={branch_id} label={branch_name || branch_id} revenue={revenue}
-          percent={share} detail={`${percentage.format(share)}% dari omzet`} />
+          percent={share} detail={`${percentage.format(share)}% dari pendapatan`} />
       ))}
     </ol>
   );

@@ -56,6 +56,12 @@ import {
   usePendingOrderEdit,
 } from "./pending-order-edit";
 
+const queueDateTime = new Intl.DateTimeFormat("id-ID", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Jakarta",
+});
+
 export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string }) {
   const account = useAuthStore((state) => state.session?.account);
   const draftOwner = useAuthStore((state) => orderOwner(state.session));
@@ -251,8 +257,13 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
         )}
         {showQueue && visibleQueue.length > 0 && (
           <ul className="space-y-3">
-            {visibleQueue.map((sale) => {
+            {visibleQueue.map((sale, index) => {
               const order = pendingOrderDraft(sale);
+              const queueNumber = `Antrean #${index + 1}`;
+              const date = new Date(sale.occurredAt);
+              const dateTime = Number.isNaN(date.getTime())
+                ? "Tanggal dan jam tidak tersedia"
+                : `${queueDateTime.format(date)} WIB`;
               const productBranch = sale.branchId ?? branchId;
               const modifying =
                 editPending.isPending || cancelPending.isPending;
@@ -279,15 +290,14 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
                     <DrawerTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Detail pesanan ${order.name}, ${itemCount} item, ${total}`}
                         className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       >
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-semibold">
-                            {order.name}
+                            {queueNumber} · {order.name}
                           </span>
                           <span className="mt-1 block text-xs text-muted-foreground">
-                            {itemCount} item
+                            {dateTime} · {itemCount} item
                           </span>
                         </span>
                         <span className="shrink-0 text-sm font-semibold tabular-nums">
@@ -306,7 +316,9 @@ export function CartPage({ sessionId: requestedSessionId }: { sessionId?: string
                     >
                       <DrawerHeader>
                         <DrawerTitle>Detail pesanan</DrawerTitle>
-                        <DrawerDescription>{order.name}</DrawerDescription>
+                        <DrawerDescription>
+                          {queueNumber} · {order.name} · {dateTime}
+                        </DrawerDescription>
                       </DrawerHeader>
                       <DrawerBody>
                         {detail.isPending && (

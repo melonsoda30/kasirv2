@@ -56,7 +56,7 @@ const summaryDate = new Intl.DateTimeFormat("id-ID", {
 });
 
 const kpiMetrics = [
-  { key: "revenue", label: "Omzet", format: formatCurrency },
+  { key: "revenue", label: "Pendapatan", format: formatCurrency },
   { key: "trx_count", label: "Transaksi", format: formatNominal },
   { key: "items_sold", label: "Item terjual", format: formatNominal },
   { key: "aov", label: "Rata-rata nota", format: formatCurrency },
@@ -326,10 +326,10 @@ function DashboardPanels({
         />
       )}
       {revenue && (
-        <DashboardSection title="Grafik omzet" detail={chartDates}>
+        <DashboardSection title="Grafik pendapatan" detail={chartDates}>
           <DashboardChart
             chart={revenue}
-            description={`Grafik omzet ${chartDates}`}
+            description={`Grafik pendapatan ${chartDates}`}
           />
         </DashboardSection>
       )}
@@ -350,7 +350,7 @@ function DashboardPanels({
       {(top_branch || payment_mix) && (
         <div className={panelGrid}>
           {top_branch && (
-            <DashboardSection title="Omzet per cabang">
+            <DashboardSection title="Pendapatan per cabang">
               <BranchRevenue branches={top_branch.data} />
             </DashboardSection>
           )}
@@ -362,7 +362,7 @@ function DashboardPanels({
         </div>
       )}
       {peak_hour && (
-        <DashboardSection title="Jam sibuk" detail="Omzet per jam">
+        <DashboardSection title="Jam sibuk" detail="Pendapatan per jam">
           <PeakHoursChart hours={peak_hour.data} />
         </DashboardSection>
       )}
@@ -396,8 +396,8 @@ function PeakHoursChart({
   return (
     <DashboardChart
       compact
-      chart={{ labels, datasets: [{ label: "Omzet", data }] }}
-      description="Grafik omzet berdasarkan jam transaksi"
+      chart={{ labels, datasets: [{ label: "Pendapatan", data }] }}
+      description="Grafik pendapatan berdasarkan jam transaksi"
     />
   );
 }
@@ -409,7 +409,7 @@ function DailyShiftSummary({
 }) {
   const date = new Date(`${summary.date}T00:00:00+07:00`);
   const rows = [
-    ["Total omzet sesi", formatCurrency(summary.total_omzet)],
+    ["Total pendapatan sesi", formatCurrency(summary.total_omzet)],
     ["Uang tunai masuk", formatCurrency(summary.total_cash_in)],
     ["Toleransi selisih", formatCurrency(summary.cash_tolerance)],
     ["Shift di luar toleransi", formatNominal(summary.exceeded_count)],

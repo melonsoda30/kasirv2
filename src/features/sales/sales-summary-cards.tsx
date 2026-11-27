@@ -95,7 +95,7 @@ export function SalesSummaryCards({
               aria-hidden="true"
             />
             <h2 id="sales-summary-title" className="text-sm font-medium">
-              Total omzet
+              Total penjualan
             </h2>
           </div>
           {methods.length > 0 && (

@@ -326,6 +326,7 @@ export async function editPendingOrder(order: OrderDraft, transaction: Sale, met
   );
   appendPendingPayment(data, {
     methodCode,
+    subtotal,
     total,
     paymentFee: transaction.paymentFee,
     paid: transaction.paid,

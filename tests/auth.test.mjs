@@ -2078,7 +2078,7 @@ test('editing pending products recalculates the total and preserves stored payme
   assert.equal(requests[0].params, undefined)
   assert.deepEqual(requests[1].params, { action: 'detail_trx', trx_id: 'TRX-1' })
   assert.deepEqual(Object.fromEntries(requests[0].data), {
-    action: 'edit_trx', trx_id: 'TRX-1', sales: 'U-0012', payment_total_price: '35942',
+    action: 'edit_trx', trx_id: 'TRX-1', sales: 'U-0012', payment_subtotal: '33000', payment_total_price: '35942',
     payment_methods: 'qris_edc', payment_fee: '0.7', payment_cash_nominal: '0', payment_cash_change: '0',
     'payment_additional_price[0][title]': 'Kemasan', 'payment_additional_price[0][value]': '1200',
     'payment_additional_price[1][title]': 'Layanan', 'payment_additional_price[1][value]': '700',
@@ -2093,6 +2093,7 @@ test('editing pending products recalculates the total and preserves stored payme
   })
   const reduced = changePendingQuantity(original, original, 'P1', 1, existing)
   await editPendingOrder(reduced, transaction)
+  assert.equal(requests[2].data.get('payment_subtotal'), '9000')
   assert.equal(requests[2].data.get('payment_total_price'), '10457')
   await assert.rejects(editPendingOrder({ ...order, items: [] }, transaction), /Tambahkan produk/)
   assert.equal(requests.length, 4)
